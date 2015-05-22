@@ -4,6 +4,7 @@
 -include("cluster.hrl").
 
 %% API.
+-export([start/0]).
 -export([start_link/0]).
 -export([connect/2]).
 -export([q/1]).
@@ -22,6 +23,9 @@
 }).
 
 %% API.
+
+start() ->
+    application:start(?MODULE).
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->
