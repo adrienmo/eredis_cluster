@@ -5,6 +5,7 @@
 
 %% API.
 -export([start_link/0]).
+-export([connect/2]).
 -export([q/1]).
 
 %% gen_server.
@@ -204,7 +205,7 @@ connect_(Address,Port) ->
 
 handle_call({q, Command}, _From, State) ->
 	{reply, q(State, Command), State};
-handle_call({connect, {Address,Port}}, _From, State) ->
+handle_call({connect, {Address,Port}}, _From, _State) ->
 	{reply, ok, connect_(Address,Port)};
 handle_call(_Request, _From, State) ->
 	{reply, ignored, State}.
