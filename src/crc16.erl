@@ -1,9 +1,5 @@
 -module(crc16).
 
--define(REDIS_CLUSTER_HASH_SLOTS,16384).
--define(REDIS_CLUSTER_REQUEST_TTL,16).
--define(REDIS_CLUSTER_DEFAULT_TTIMEOUT,1).
-
 -export([crc16/1]).
 
 crc16(Key) ->

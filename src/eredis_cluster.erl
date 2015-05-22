@@ -55,8 +55,8 @@ q(State,Command) ->
 	end.
 
 %% ====================================================================
-%% @doc Given a slot return the link (Redis instance) to the mapped 
-%% node. Make sure to create a connection with the node if we don't 
+%% @doc Given a slot return the link (Redis instance) to the mapped
+%% node. Make sure to create a connection with the node if we don't
 %% have one.
 %% @end
 %% ====================================================================
@@ -77,7 +77,7 @@ create_slots_cache(ClusterSlots) ->
     [ Index || {_,Index} <- SortedSlotsCache].
 
 connect_all_slots(ClusterSlots) ->
-    [ClusterSlot#cluster_slot{nodes=connect_nodes(ClusterSlot#cluster_slot.nodes)} || 
+    [ClusterSlot#cluster_slot{nodes=connect_nodes(ClusterSlot#cluster_slot.nodes)} ||
         ClusterSlot <- ClusterSlots].
 
 connect_nodes(Nodes) ->
@@ -122,7 +122,7 @@ to_node_record(AddressB, PortB) ->
     PortStr  = integer_to_list(Port),
     Name = list_to_atom(Address ++ ":" ++ PortStr),
 
-    #node{address = Address, 
+    #node{address = Address,
            port = Port,
            name = Name}.
 
@@ -157,10 +157,10 @@ get_key_slot(Key) ->
 %%
 %% Currently we just return the second argument
 %% after the command name.
-%% 
+%%
 %% This is indeed the key for most commands, and when it is not true
 %% the cluster redirection will point us to the right node anyway.
-%% 
+%%
 %% For commands that don't make sense in the context of cluster
 %% undefined is returned.
 %% @end
@@ -193,7 +193,7 @@ init(_Args) ->
 	{ok, #state{}}.
 
 connect_(Address,Port) ->
-	{ok, C} = eredis:start_link(Address, Port), 
+	{ok, C} = eredis:start_link(Address, Port),
     {ok, ClusterSlotsRaw} = eredis:q(C, ["CLUSTER", "SLOTS"]),
     eredis:stop(C),
 
