@@ -1,5 +1,15 @@
 # eredis_cluster
+
+## Description
+
 eredis_cluster is a wrapper for eredis to support cluster mode of redis 3.0.0+
+This project is under development
+
+**Todo**
+
+- Failover on slave when master node cannot be reached
+- Handle redirection errors -MOVED and -ASK
+- Use connection pool (Probably poolboy)
 
 ## Compilation
 
@@ -18,4 +28,3 @@ The directory contains a Makefile and rebar
 
 	%% Use like eredis
 	eredis_cluster:q(["GET","abc"]).
-	
