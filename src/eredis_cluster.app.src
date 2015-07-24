@@ -5,8 +5,7 @@
 	{registered, []},
 	{applications, [
 		kernel,
-		stdlib,
-		eredis
+		stdlib
 	]},
 	{mod, {eredis_cluster_app, []}},
 	{env, []}

@@ -1,4 +1,4 @@
--module(crc16).
+-module(eredis_cluster_crc16).
 
 -export([crc16/1]).
 

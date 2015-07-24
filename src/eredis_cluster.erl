@@ -88,20 +88,24 @@ q(State,Command,Counter) ->
                     q(initialize_slots_cache(State),Command,Counter+1);
 
 				Node ->
-					case eredis:q(Node#node.connection, Command) of
+					case query_eredis_pool(Node#node.connection, Command) of
 						{ok,Payload} ->
 							NewState = State#state{try_random_node = false},
 							{NewState,{ok,Payload}};
+
+                        {error,no_connection} ->
+							NewState = State#state{try_random_node=true},
+							NewState2 = remove_connection(NewState,Node),
+							q(NewState2,Command,Counter+1);
 
 						{error,<<"MOVED ",_RedirectionInfo/binary>>} ->
                             NewState = State#state{try_random_node = false},
                             NewState2 = initialize_slots_cache(NewState),
 							q(NewState2,Command,Counter+1);
 
-						{error,_} ->
-							NewState = State#state{try_random_node=true},
-							NewState2 = remove_connection(NewState,Node),
-							q(NewState2,Command,Counter+1)
+                        {error,Reason} ->
+                            NewState = State#state{try_random_node = false},
+							{NewState,{error,Reason}}    
 					end
 			end
 	end.
@@ -185,7 +189,7 @@ get_key_slot(Key) ->
 					end
 			end
 	end,
-	crc16:crc16(KeyToBeHased) rem ?REDIS_CLUSTER_HASH_SLOTS.
+	eredis_cluster_crc16:crc16(KeyToBeHased) rem ?REDIS_CLUSTER_HASH_SLOTS.
 
 
 %% =============================================================================
@@ -259,7 +263,7 @@ close_connection(SlotsMap) ->
 	Node = SlotsMap#slots_map.node,
 	if
 		Node =/= undefined ->
-			try eredis:stop(Node#node.connection) of
+			try stop_eredis_pool(Node#node.connection) of
                 _ ->
                     ok
             catch
@@ -271,12 +275,34 @@ close_connection(SlotsMap) ->
 	end.
 
 connect_node(Node) ->
-    case safe_eredis_start_link(Node#node.address, Node#node.port) of
+    case create_eredis_pool(Node#node.address, Node#node.port) of
         {ok,Connection} ->
             Node#node{connection=Connection};
         _ ->
             undefined
     end.
+
+create_eredis_pool(Host,Port) ->
+    Name = list_to_atom(Host ++ "#" ++ integer_to_list(Port)),
+    WorkerArgs = [{host, Host},{port, Port}],
+
+    PoolArgs = [{name, {local, Name}},
+                {worker_module, eredis_cluster_worker},
+                {size, 10},
+                {max_overflow, 0}],
+
+    ChildSpec = poolboy:child_spec(Name, PoolArgs, WorkerArgs),
+
+    {Result,_} = supervisor:start_child(eredis_cluster_sup,ChildSpec),
+    {Result,Name}.
+
+stop_eredis_pool(_PoolName) ->
+    ok.
+
+query_eredis_pool(PoolName, Params) ->
+    poolboy:transaction(PoolName, fun(Worker) ->
+        gen_server:call(Worker, {q, Params})
+    end).
 
 safe_eredis_start_link(Address,Port) ->
     process_flag(trap_exit, true),
