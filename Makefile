@@ -1,14 +1,8 @@
 ERL=erl
 BEAMDIR=./deps/*/ebin ./ebin
-REBAR=./rebar
+REBAR=./rebar3
 
-all: clean get-deps update-deps compile xref
-
-update-deps:
-	@$(REBAR) update-deps
-
-get-deps:
-	@$(REBAR) get-deps
+all: clean compile xref
 
 compile:
 	@$(REBAR) compile
