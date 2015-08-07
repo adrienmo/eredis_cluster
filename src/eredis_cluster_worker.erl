@@ -20,6 +20,8 @@ init(Args) ->
 
 handle_call({q, Params}, _From, #state{conn=Conn}=State) ->
     {reply, eredis:q(Conn,Params), State};
+handle_call({qp, Params}, _From, #state{conn=Conn}=State) ->
+    {reply, eredis:qp(Conn,Params), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
