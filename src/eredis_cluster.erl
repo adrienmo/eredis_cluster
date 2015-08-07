@@ -32,6 +32,7 @@
 -export([start_link/0]).
 -export([connect/1]).
 -export([q/1]).
+-export([qp/1]).
 
 %% gen_server.
 -export([init/1]).
@@ -105,10 +106,75 @@ q(State,Command,Counter) ->
 
                         {error,Reason} ->
                             NewState = State#state{try_random_node = false},
-							{NewState,{error,Reason}}    
+							{NewState,{error,Reason}}
 					end
 			end
 	end.
+
+qp(Command) ->
+    gen_server:call(?MODULE,{qp, Command}).
+qp(State, Commands) ->
+    qp(State, Commands, 0).
+qp(State, _Commands, ?REDIS_CLUSTER_REQUEST_TTL) ->
+    {State, {error, no_connection}};
+qp(State, Commands, Counter) ->
+    case has_same_key(Commands) of
+        true ->
+            case get_key_from_command(lists:nth(1, Commands)) of
+                undefined ->
+                    {State,{error, invalid_cluster_command}};
+                Key ->
+                    Slot = get_key_slot(Key),
+
+                    Node = if
+                        State#state.try_random_node =:= false ->
+                            get_connection_by_slot(State,Slot);
+                        true ->
+                            get_random_connection(State)
+                    end,
+
+                    case Node of
+                        undefined ->
+                            q(State#state{try_random_node = true},Commands,Counter+1);
+
+                        cluster_down ->
+                            q(initialize_slots_cache(State),Commands,Counter+1);
+
+                        Node ->
+                            case query_eredis_pool_pipeline(Node#node.connection, Commands) of
+                                {error,no_connection} ->
+                                    NewState = State#state{try_random_node=true},
+                                    NewState2 = remove_connection(NewState,Node),
+                                    q(NewState2,Commands,Counter+1);
+
+                                {error,<<"MOVED ",_RedirectionInfo/binary>>} ->
+                                    NewState = State#state{try_random_node = false},
+                                    NewState2 = initialize_slots_cache(NewState),
+                                    q(NewState2,Commands,Counter+1);
+
+                                {error,Reason} ->
+                                    NewState = State#state{try_random_node = false},
+                                    {NewState,{error,Reason}};
+
+                                Payload ->
+                                    NewState = State#state{try_random_node = false},
+                                    {NewState, {ok, Payload}}
+                            end
+                    end
+            end;
+
+        false ->
+            {State, {error, keys_not_same}}
+    end.
+
+has_same_key([[_,Key|_]|T]) ->
+    has_same_key(T,Key).
+has_same_key([],_) ->
+    true;
+has_same_key([[_,Key|_]|T],Key) ->
+    has_same_key(T,Key);
+has_same_key(_,_) ->
+    false.
 
 %% =============================================================================
 %% @doc Given a slot return the link (Redis instance) to the mapped
@@ -304,6 +370,11 @@ query_eredis_pool(PoolName, Params) ->
         gen_server:call(Worker, {q, Params})
     end).
 
+query_eredis_pool_pipeline(PoolName, Params) ->
+    poolboy:transaction(PoolName, fun(Worker) ->
+        gen_server:call(Worker, {qp, Params})
+    end).
+
 safe_eredis_start_link(Address,Port) ->
     process_flag(trap_exit, true),
     Payload = eredis:start_link(Address, Port),
@@ -382,7 +453,10 @@ init(_Args) ->
 	{ok, #state{}}.
 
 handle_call({q, Command}, _From, State) ->
-	{NewState,Result} = q(State, Command),
+    {NewState,Result} = q(State, Command),
+    {reply, Result, NewState};
+handle_call({qp, Command}, _From, State) ->
+	{NewState,Result} = qp(State, Command),
 	{reply, Result, NewState};
 handle_call({connect, InitServers}, _From, _State) ->
 	{reply, ok, connect_(InitServers)};
