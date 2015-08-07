@@ -33,6 +33,7 @@
 -export([connect/1]).
 -export([q/1]).
 -export([qp/1]).
+-export([transaction/2]).
 
 %% gen_server.
 -export([init/1]).
@@ -175,6 +176,51 @@ has_same_key([[_,Key|_]|T],Key) ->
     has_same_key(T,Key);
 has_same_key(_,_) ->
     false.
+
+transaction(Fun, Key) ->
+	gen_server:call(?MODULE, {transaction, Fun, Key}).
+transaction(State, Fun, Key) ->
+    transaction(State, Fun, Key, 0).
+transaction(State, _Fun, _Key, ?REDIS_CLUSTER_REQUEST_TTL) ->
+    {State, {error, no_connection}};
+transaction(State, Fun, Key, Counter) ->
+    Slot = get_key_slot(Key),
+
+    Node = if
+        State#state.try_random_node =:= false ->
+            get_connection_by_slot(State,Slot);
+        true ->
+            get_random_connection(State)
+    end,
+
+    case Node of
+        undefined ->
+            transaction(State#state{try_random_node = true}, Fun, Key, Counter+1);
+
+        cluster_down ->
+            transaction(initialize_slots_cache(State), Fun, Key, Counter+1);
+
+        Node ->
+            case query_eredis_pool_transaction(Node#node.connection, Fun) of
+                {error,no_connection} ->
+                    NewState = State#state{try_random_node=true},
+                    NewState2 = remove_connection(NewState, Node),
+                    transaction(NewState2, Fun, Key,Counter+1);
+
+                {error,<<"MOVED ",_RedirectionInfo/binary>>} ->
+                    NewState = State#state{try_random_node = false},
+                    NewState2 = initialize_slots_cache(NewState),
+                    transaction(NewState2, Fun, Key,Counter+1);
+
+                {error,Reason} ->
+                    NewState = State#state{try_random_node = false},
+                    {NewState, {error, Reason}};
+
+                Payload ->
+                    NewState = State#state{try_random_node = false},
+                    {NewState, {ok, Payload}}
+            end
+    end.
 
 %% =============================================================================
 %% @doc Given a slot return the link (Redis instance) to the mapped
@@ -375,6 +421,19 @@ query_eredis_pool_pipeline(PoolName, Params) ->
         gen_server:call(Worker, {qp, Params})
     end).
 
+query_eredis_pool_transaction(PoolName, Fun) ->
+    poolboy:transaction(PoolName, fun(Worker) ->
+        try
+            {ok, <<"OK">>} = gen_server:call(Worker, {q, ["MULTI"]}),
+            Fun(Worker),
+            gen_server:call(Worker, {q, ["EXEC"]})
+        catch Klass:Reason ->
+            {ok, <<"OK">>} = gen_server:call(Worker, {q, ["DISCARD"]}),
+            io:format("Error in redis transaction. ~p:~p", [Klass, Reason]),
+            {Klass, Reason}
+        end
+    end).
+
 safe_eredis_start_link(Address,Port) ->
     process_flag(trap_exit, true),
     Payload = eredis:start_link(Address, Port),
@@ -458,6 +517,9 @@ handle_call({q, Command}, _From, State) ->
 handle_call({qp, Command}, _From, State) ->
 	{NewState,Result} = qp(State, Command),
 	{reply, Result, NewState};
+handle_call({transaction, Fun, Key}, _From, State) ->
+    {NewState, Result} = transaction(State, Fun, Key),
+    {reply, Result, NewState};
 handle_call({connect, InitServers}, _From, _State) ->
 	{reply, ok, connect_(InitServers)};
 handle_call(_Request, _From, State) ->
