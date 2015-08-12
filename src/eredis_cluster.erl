@@ -20,9 +20,9 @@
 }).
 
 -record(state, {
-	init_nodes :: [eredis_cluser:node()],
+	init_nodes :: [#node{}],
 	slots :: [integer()],
-	slots_maps :: [eredis_cluser:slots_map()],
+	slots_maps :: [#slots_map{}],
 	try_random_node :: boolean(),
 	refresh_table_asap :: boolean()
 }).
@@ -238,6 +238,7 @@ get_connection_by_slot(State,Slot) ->
 
 remove_connection(State,Node) ->
 	SlotsMaps = State#state.slots_maps,
+    stop_eredis_pool(Node#node.connection),
 	NewSlotsMaps = [remove_node(SlotsMap,Node) || SlotsMap <- SlotsMaps],
 	State#state{slots_maps=NewSlotsMaps}.
 
@@ -408,7 +409,9 @@ create_eredis_pool(Host,Port) ->
     {Result,_} = supervisor:start_child(eredis_cluster_sup,ChildSpec),
     {Result,Name}.
 
-stop_eredis_pool(_PoolName) ->
+stop_eredis_pool(PoolName) ->
+    supervisor:terminate_child(eredis_cluster_sup,PoolName),
+    supervisor:delete_child(eredis_cluster_sup,PoolName),
     ok.
 
 query_eredis_pool(PoolName, Params) ->
