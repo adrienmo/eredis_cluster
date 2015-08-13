@@ -9,21 +9,38 @@ This project is under development
 
 - Enhance the way poolboy is used
 
-## Compilation && test
+## Compilation && Test
 
 The directory contains a Makefile and rebar3
 
 	make
 	make test
 
+## Configuration
+
+To configure the redis cluster, you can use an application variable (probably in your app.config):
+
+	{eredis_cluster,
+	    [
+	        {init_nodes,[
+	            {"127.0.0.1",30001},
+	            {"127.0.0.1",30002}
+	        ]},
+	        {pool_size, 5},
+	        {pool_max_overflow, 0}
+	    ]
+	}
+
+You don't need to specify all nodes of your configuration as eredis_cluster will
+retrieve them through the command `CLUSTER NODES` at runtime.
+
 ## Usage
 
 	%% Start the application
-	eredis_cluster:start(),
-
-	%% connect to one node of the cluster, it will retrieve all the node config
-	%% using the command CLUSTER SLOTS
-	eredis_cluster:connect([{"127.0.0.1",30001},{"127.0.0.1",30002}]),
+	eredis_cluster:start().
 
 	%% Use like eredis
 	eredis_cluster:q(["GET","abc"]).
+
+	%% Pipeline
+	eredis_cluster:qp([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).

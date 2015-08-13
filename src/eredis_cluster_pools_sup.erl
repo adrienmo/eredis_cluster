@@ -28,10 +28,13 @@ create_eredis_pool(Host,Port) ->
 
     WorkerArgs = [{host, Host},{port, Port},{pool_name,PoolName}],
 
+	Size = application:get_env(eredis_cluster, pool_size, 10),
+	MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
+
     PoolArgs = [{name, {local, PoolName}},
                 {worker_module, eredis_cluster_worker},
-                {size, 10},
-                {max_overflow, 0}],
+                {size, Size},
+                {max_overflow, MaxOverflow}],
 
     ChildSpec = poolboy:child_spec(PoolName, PoolArgs, WorkerArgs),
 
