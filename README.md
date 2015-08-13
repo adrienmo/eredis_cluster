@@ -7,14 +7,14 @@ This project is under development
 
 **Todo**
 
-- Use connection pool (Probably poolboy)
-- Add tests
+- Enhance the way poolboy is used
 
-## Compilation
+## Compilation && test
 
-The directory contains a Makefile and rebar
+The directory contains a Makefile and rebar3
 
 	make
+	make test
 
 ## Usage
 

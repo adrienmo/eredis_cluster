@@ -12,11 +12,9 @@
 %% Internal functions
 %% ====================================================================
 
-start(_Type, _Args) ->   
+start(_Type, _Args) ->
     %% Start Supervisor
     eredis_cluster_sup:start_link().
-
-
 
 stop(_State) ->
 	ok.

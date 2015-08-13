@@ -4,13 +4,7 @@
 
 -define(Setup, fun() ->
     application:start(eredis_cluster),
-    eredis_cluster:connect([
-        {"127.0.0.1",30001},
-        {"127.0.0.1",30002},
-        {"127.0.0.1",30003},
-        {"127.0.0.1",30004},
-        {"127.0.0.1",30005},
-        {"127.0.0.1",30006}])
+    eredis_cluster:connect([{"127.0.0.1",30001},{"127.0.0.1",30002}])
 end).
 -define(Clearnup, fun(_) -> application:stop(eredis_cluster)  end).
 
@@ -38,7 +32,7 @@ basic_test_() ->
             { "pipeline",
             fun () ->
                 ?assertNotMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qp([["SET", "a1", "aaa"], ["SET", "a2", "aaa"], ["SET", "a3", "aaa"]])),
-                ?assertNotMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qp([["LPUSH", "a", "aaa"], ["LPUSH", "a", "bbb"], ["LPUSH", "a", "ccc"]]))
+                ?assertMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qp([["LPUSH", "a", "aaa"], ["LPUSH", "a", "bbb"], ["LPUSH", "a", "ccc"]]))
             end
             }
 

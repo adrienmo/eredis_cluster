@@ -16,7 +16,7 @@ clean:
 eunit:
 	@rm -rf .eunit
 	@mkdir -p .eunit
-	@ERL_FLAGS="-config test.config" $(REBAR) skip_deps=true eunit 
+	@$(REBAR) eunit 
 
 test: eunit
 
