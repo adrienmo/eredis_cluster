@@ -315,6 +315,10 @@ get_cluster_info([Node|T]) ->
 	case safe_eredis_start_link(Node#node.address, Node#node.port) of
 		{ok,Connection} ->
   		case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
+            {error,<<"ERR unknown command 'CLUSTER'">>} ->
+                cluster_info_from_single_node(Node);
+            {error,<<"ERR This instance has cluster support disabled">>} ->
+                cluster_info_from_single_node(Node);
 			{ok, ClusterInfo} ->
 				eredis:stop(Connection),
 				ClusterInfo;
@@ -325,6 +329,12 @@ get_cluster_info([Node|T]) ->
 		_ ->
 			get_cluster_info(T)
   end.
+
+cluster_info_from_single_node(Node) ->
+    [[<<"0">>,
+    integer_to_binary(?REDIS_CLUSTER_HASH_SLOTS-1),
+    [list_to_binary(Node#node.address),
+    integer_to_binary(Node#node.port)]]].
 
 close_connection(SlotsMap) ->
 	Node = SlotsMap#slots_map.node,
