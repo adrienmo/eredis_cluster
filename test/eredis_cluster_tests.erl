@@ -49,8 +49,11 @@ transaction_test_() ->
                     gen_server:call(Worker, {q, ["SET", "aa", "111"]}),
                     gen_server:call(Worker, {q, ["DEL", "aa"]})
                 end, "aa")),
+<<<<<<< HEAD
 
                 %%TODO this test may not pass in certain cluster configuration
+=======
+>>>>>>> e00f4b00095514a5e2e5ea4cfd3da9f44428e488
                 ?assertMatch({error, _},  eredis_cluster:transaction(fun (Worker) ->
                     gen_server:call(Worker, {q, ["SET", "aa", "111"]}),
                     gen_server:call(Worker, {q, ["DEL", "bb"]})
