@@ -435,23 +435,26 @@ to_node_record(AddressB, PortB) ->
         name = Name
     }.
 
-connect_(InitServers) ->
+connect_([]) ->
+    #state{};
+connect_(InitNodes) ->
 
-	InitNodes = [#node{address = A,port = P} || {A,P} <- InitServers],
+	Nodes = [#node{address = A,port = P} || {A,P} <- InitNodes],
 
-	InitState = #state{
+	State = #state{
 		slots = undefined,
 		slots_maps = [],
 		try_random_node = false,
-		init_nodes = InitNodes
+		init_nodes = Nodes
 	},
 
-	initialize_slots_cache(InitState).
+	initialize_slots_cache(State).
 
 %% gen_server.
 
 init(_Args) ->
-	{ok, #state{}}.
+    InitNodes = application:get_env(eredis_cluster, init_nodes, []),
+	{ok, connect_(InitNodes)}.
 
 handle_call({q, Command}, _From, State) ->
     {NewState,Result} = q(State, Command),

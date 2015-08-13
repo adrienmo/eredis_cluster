@@ -3,8 +3,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(Setup, fun() ->
-    application:start(eredis_cluster),
-    eredis_cluster:connect([{"127.0.0.1",30001},{"127.0.0.1",30002}])
+    application:start(eredis_cluster)
 end).
 -define(Clearnup, fun(_) -> application:stop(eredis_cluster)  end).
 

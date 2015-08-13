@@ -10,13 +10,13 @@ compile:
 xref:
 	@$(REBAR) xref skip_deps=true
 
-clean: 
+clean:
 	@ $(REBAR) clean
 
 eunit:
 	@rm -rf .eunit
 	@mkdir -p .eunit
-	@$(REBAR) eunit 
+	@ERL_FLAGS="-config test.config" $(REBAR) eunit 
 
 test: eunit
 
