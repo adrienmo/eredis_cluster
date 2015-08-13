@@ -61,9 +61,12 @@ connect(InitServers) ->
 q(Command) ->
 	gen_server:call(?MODULE,{q,Command}).
 
+qp(Commands) ->
+    gen_server:call(?MODULE,{q, Commands}).
+
 %% private functions
--spec q(State::eredis_cluser:state(),Command::[any()]) ->
-    {State::eredis_cluser:state(), Payload::any()}.
+-spec q(State::#state{},Command::[any()]) ->
+    {State::#state{}, Payload::any()}.
 q(State,Command) ->
     q(State,Command,0).
 q(State,_Command,?REDIS_CLUSTER_REQUEST_TTL) ->
@@ -91,10 +94,6 @@ q(State,Command,Counter) ->
 
 				Node ->
 					case query_eredis_pool(Node#node.connection, Command) of
-						{ok,Payload} ->
-							NewState = State#state{try_random_node = false},
-							{NewState,{ok,Payload}};
-
                         {error,no_connection} ->
 							NewState = State#state{try_random_node=true},
 							NewState2 = remove_connection(NewState,Node),
@@ -107,66 +106,14 @@ q(State,Command,Counter) ->
 
                         {error,Reason} ->
                             NewState = State#state{try_random_node = false},
-							{NewState,{error,Reason}}
+							{NewState,{error,Reason}};
+
+                        Payload ->
+							NewState = State#state{try_random_node = false},
+							{NewState,Payload}
 					end
 			end
 	end.
-
-qp(Command) ->
-    gen_server:call(?MODULE,{qp, Command}).
-qp(State, Commands) ->
-    qp(State, Commands, 0).
-qp(State, _Commands, ?REDIS_CLUSTER_REQUEST_TTL) ->
-    {State, {error, no_connection}};
-qp(State, Commands, Counter) ->
-    case has_same_key(Commands) of
-        true ->
-            case get_key_from_command(lists:nth(1, Commands)) of
-                undefined ->
-                    {State,{error, invalid_cluster_command}};
-                Key ->
-                    Slot = get_key_slot(Key),
-
-                    Node = if
-                        State#state.try_random_node =:= false ->
-                            get_connection_by_slot(State,Slot);
-                        true ->
-                            get_random_connection(State)
-                    end,
-
-                    case Node of
-                        undefined ->
-                            q(State#state{try_random_node = true},Commands,Counter+1);
-
-                        cluster_down ->
-                            q(initialize_slots_cache(State),Commands,Counter+1);
-
-                        Node ->
-                            case query_eredis_pool_pipeline(Node#node.connection, Commands) of
-                                {error,no_connection} ->
-                                    NewState = State#state{try_random_node=true},
-                                    NewState2 = remove_connection(NewState,Node),
-                                    q(NewState2,Commands,Counter+1);
-
-                                {error,<<"MOVED ",_RedirectionInfo/binary>>} ->
-                                    NewState = State#state{try_random_node = false},
-                                    NewState2 = initialize_slots_cache(NewState),
-                                    q(NewState2,Commands,Counter+1);
-
-                                {error,Reason} ->
-                                    NewState = State#state{try_random_node = false},
-                                    {NewState,{error,Reason}};
-
-                                Payload ->
-                                    NewState = State#state{try_random_node = false},
-                                    {NewState, {ok, Payload}}
-                            end
-                    end
-            end;
-
-        false ->
-            {State, {error, keys_not_same}}
-    end.
 
 has_same_key([[_,Key|_]|T]) ->
     has_same_key(T,Key).
@@ -238,7 +185,7 @@ get_connection_by_slot(State,Slot) ->
 
 remove_connection(State,Node) ->
 	SlotsMaps = State#state.slots_maps,
-    stop_eredis_pool(Node#node.connection),
+    eredis_cluster_pools_sup:stop_eredis_pool(Node#node.connection),
 	NewSlotsMaps = [remove_node(SlotsMap,Node) || SlotsMap <- SlotsMaps],
 	State#state{slots_maps=NewSlotsMaps}.
 
@@ -315,15 +262,21 @@ get_key_slot(Key) ->
 %% the cluster redirection will point us to the right node anyway.
 %%
 %% For commands that don't make sense in the context of cluster
-%% undefined is returned.
+%% return value will be undefined.
 %% @end
 %% =============================================================================
 
 -spec get_key_from_command([string()]) -> string() | undefined.
-get_key_from_command([]) ->
-	undefined;
-get_key_from_command(Command) ->
-	case string:to_lower(lists:nth(1,Command)) of
+get_key_from_command([[X|Y]|Z]) when is_list(X) ->
+    HasSameKey = has_same_key([[X|Y]|Z]),
+    if
+        HasSameKey =:= true ->
+            get_key_from_command([X|Y]);
+        true ->
+            undefined
+    end;
+get_key_from_command([Term1,Term2|_]) ->
+	case string:to_lower(Term1) of
 		"info" ->
 			undefined;
 		"multi" ->
@@ -337,8 +290,10 @@ get_key_from_command(Command) ->
 		"shutdown" ->
 			undefined;
 		_ ->
-			lists:nth(2,Command)
-	end.
+			Term2
+	end;
+get_key_from_command(_) ->
+    undefined.
 
 initialize_slots_cache(State) ->
 	[close_connection(SlotsMap) || SlotsMap <- State#state.slots_maps],
@@ -353,7 +308,6 @@ initialize_slots_cache(State) ->
 		slots = Slots,
 		slots_maps = ConnectedSlotsMaps
 	}.
-
 
 get_cluster_info([]) ->
 	throw({error,cannot_connect_to_cluster});
@@ -376,7 +330,7 @@ close_connection(SlotsMap) ->
 	Node = SlotsMap#slots_map.node,
 	if
 		Node =/= undefined ->
-			try stop_eredis_pool(Node#node.connection) of
+			try eredis_cluster_pools_sup:stop_eredis_pool(Node#node.connection) of
                 _ ->
                     ok
             catch
@@ -388,41 +342,26 @@ close_connection(SlotsMap) ->
 	end.
 
 connect_node(Node) ->
-    case create_eredis_pool(Node#node.address, Node#node.port) of
+    case eredis_cluster_pools_sup:create_eredis_pool(Node#node.address, Node#node.port) of
         {ok,Connection} ->
             Node#node{connection=Connection};
         _ ->
             undefined
     end.
 
-create_eredis_pool(Host,Port) ->
-    Name = list_to_atom(Host ++ "#" ++ integer_to_list(Port)),
-    WorkerArgs = [{host, Host},{port, Port}],
-
-    PoolArgs = [{name, {local, Name}},
-                {worker_module, eredis_cluster_worker},
-                {size, 10},
-                {max_overflow, 0}],
-
-    ChildSpec = poolboy:child_spec(Name, PoolArgs, WorkerArgs),
-
-    {Result,_} = supervisor:start_child(eredis_cluster_sup,ChildSpec),
-    {Result,Name}.
-
-stop_eredis_pool(PoolName) ->
-    supervisor:terminate_child(eredis_cluster_sup,PoolName),
-    supervisor:delete_child(eredis_cluster_sup,PoolName),
-    ok.
-
-query_eredis_pool(PoolName, Params) ->
-    poolboy:transaction(PoolName, fun(Worker) ->
-        gen_server:call(Worker, {q, Params})
-    end).
-
-query_eredis_pool_pipeline(PoolName, Params) ->
-    poolboy:transaction(PoolName, fun(Worker) ->
-        gen_server:call(Worker, {qp, Params})
-    end).
+query_eredis_pool(PoolName,[[X|Y]|Z]) when is_list(X) ->
+    query_eredis_pool(PoolName,[[X|Y]|Z],qp);
+query_eredis_pool(PoolName, Command) ->
+    query_eredis_pool(PoolName,Command,q).
+query_eredis_pool(PoolName, Params, Type) ->
+    try
+        poolboy:transaction(PoolName, fun(Worker) ->
+            gen_server:call(Worker, {Type, Params})
+        end)
+    catch
+        exit:_ ->
+            {error,no_connection}
+    end.
 
 query_eredis_pool_transaction(PoolName, Fun) ->
     poolboy:transaction(PoolName, fun(Worker) ->
@@ -517,9 +456,6 @@ init(_Args) ->
 handle_call({q, Command}, _From, State) ->
     {NewState,Result} = q(State, Command),
     {reply, Result, NewState};
-handle_call({qp, Command}, _From, State) ->
-	{NewState,Result} = qp(State, Command),
-	{reply, Result, NewState};
 handle_call({transaction, Fun, Key}, _From, State) ->
     {NewState, Result} = transaction(State, Fun, Key),
     {reply, Result, NewState};

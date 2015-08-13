@@ -12,9 +12,11 @@ start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
 init(Args) ->
-    process_flag(trap_exit, true),
+    %%process_flag(trap_exit, true),
     Hostname = proplists:get_value(host, Args),
     Port = proplists:get_value(port, Args),
+    PoolName = proplists:get_value(pool_name, Args),
+    eredis_cluster_pools_sup:register_worker_connection(PoolName),
     {ok, Conn} = eredis:start_link(Hostname,Port),
     {ok, #state{conn=Conn}}.
 
