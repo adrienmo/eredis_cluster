@@ -38,25 +38,3 @@ basic_test_() ->
       ]
     }
 }.
-
-transaction_test_() ->
-    {inparallel,
-        {setup, ?Setup, ?Clearnup,
-        [
-            { "transaction",
-            fun () ->
-                ?assertMatch({ok, _},  eredis_cluster:transaction(fun (Worker) ->
-                    gen_server:call(Worker, {q, ["SET", "aa", "111"]}),
-                    gen_server:call(Worker, {q, ["DEL", "aa"]})
-                end, "aa")),
-                
-                %%TODO this test may not pass in certain cluster configuration
-                ?assertMatch({error, _},  eredis_cluster:transaction(fun (Worker) ->
-                    gen_server:call(Worker, {q, ["SET", "aa", "111"]}),
-                    gen_server:call(Worker, {q, ["DEL", "bb"]})
-                end, "aa"))
-            end
-            }
-        ]
-        }
-    }.
