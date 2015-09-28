@@ -5,6 +5,7 @@
 
 -export([q/1]).
 -export([qp/1]).
+-export([has_same_key/1]).
 
 qp(Commands) ->
     q(Commands).
@@ -87,7 +88,7 @@ get_key_slot(Key) ->
 					end
 			end
 	end,
-	eredis_cluster_crc16:crc16(KeyToBeHased) rem ?REDIS_CLUSTER_HASH_SLOTS.
+	eredis_cluster_hash:hash(KeyToBeHased).
 
 %% =============================================================================
 %% @doc Return the first key in the command arguments.
@@ -104,14 +105,8 @@ get_key_slot(Key) ->
 %% =============================================================================
 
 -spec get_key_from_command([string()]) -> string() | undefined.
-get_key_from_command([[X|Y]|Z]) when is_list(X) ->
-    HasSameKey = has_same_key([[X|Y]|Z]),
-    if
-        HasSameKey =:= true ->
-            get_key_from_command([X|Y]);
-        true ->
-            undefined
-    end;
+get_key_from_command([[X|Y]|_]) when is_list(X) ->
+    get_key_from_command([X|Y]);
 get_key_from_command([Term1,Term2|_]) ->
 	case string:to_lower(Term1) of
 		"info" ->
