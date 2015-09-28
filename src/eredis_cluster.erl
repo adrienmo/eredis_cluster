@@ -3,9 +3,15 @@
 -define(REDIS_CLUSTER_REQUEST_TTL,16).
 -define(REDIS_CLUSTER_HASH_SLOTS,16384).
 
+-export([connect/1]).
 -export([q/1]).
 -export([qp/1]).
 -export([has_same_key/1]).
+-export([get_slots_map/0]).
+
+
+connect(InitServers) ->
+    eredis_cluster_monitor:connect(InitServers).
 
 qp(Commands) ->
     q(Commands).
@@ -64,6 +70,9 @@ query_eredis_pool(PoolName, Params, Type) ->
         exit:_ ->
             {error,no_connection}
     end.
+
+get_slots_map() ->
+    eredis_cluster_monitor:get_slots_map().
 
 %% =============================================================================
 %% @doc Return the hash slot from the key

@@ -31,6 +31,7 @@
 -export([get_random_pool/0]).
 -export([remove_pool/1]).
 -export([get_pool_by_slot/1]).
+-export([get_slots_map/0]).
 
 %% gen_server.
 -export([init/1]).
@@ -65,6 +66,9 @@ remove_pool(Connection) ->
 get_pool_by_slot(Slot) ->
     gen_server:call(?MODULE,{get_pool_by_slot,Slot}).
 
+get_slots_map() ->
+    gen_server:call(?MODULE,get_slots_map).
+
 %% =============================================================================
 %% @doc Given a slot return the link (Redis instance) to the mapped
 %% node. Make sure to create a connection with the node if we don't
@@ -76,6 +80,9 @@ get_pool_by_slot(State,Slot) ->
 	Index = lists:nth(Slot+1,State#state.slots),
 	Cluster = lists:nth(Index,State#state.slots_maps),
 	Cluster#slots_map.node#node.pool.
+
+get_slots_map(State) ->
+    State#state.slots.
 
 remove_pool(State,Connection) ->
 	SlotsMaps = State#state.slots_maps,
@@ -253,6 +260,8 @@ init(_Args) ->
     InitNodes = application:get_env(eredis_cluster, init_nodes, []),
 	{ok, connect_(InitNodes)}.
 
+handle_call(get_slots_map, _From, State) ->
+	{reply, get_slots_map(State), State};
 handle_call(initialize_slots_cache, _From, State) ->
 	{reply, ok, initialize_slots_cache(State)};
 handle_call(get_random_pool, _From, State) ->
