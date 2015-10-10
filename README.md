@@ -47,3 +47,6 @@ retrieve them through the command `CLUSTER SLOTS` at runtime.
 
 	%% Pipeline
 	eredis_cluster:qp([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
+
+	%% Transaction
+	eredis_cluster:transaction([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
