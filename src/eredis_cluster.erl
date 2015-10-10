@@ -1,20 +1,17 @@
 -module(eredis_cluster).
 
 -define(REDIS_CLUSTER_REQUEST_TTL,16).
--define(REDIS_CLUSTER_HASH_SLOTS,16384).
 
 -export([connect/1]).
 -export([q/1]).
 -export([qp/1]).
+-export([transaction/1]).
 -export([has_same_key/1]).
 -export([get_slots_map/0]).
-
 
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
 
-qp(Commands) ->
-    q(Commands).
 q(Command) ->
     q(Command,0,false).
 q(_,?REDIS_CLUSTER_REQUEST_TTL,_) ->
@@ -30,6 +27,12 @@ q(Command,Counter,TryRandomNode) ->
 				TryRandomNode =:= false ->
 					eredis_cluster_monitor:get_pool_by_slot(Slot);
 				true ->
+                    if
+                        Counter > 1 ->
+                            timer:sleep(100);
+                        true ->
+                            ok
+                    end,
 					eredis_cluster_monitor:get_random_pool()
 			end,
 
@@ -56,6 +59,14 @@ q(Command,Counter,TryRandomNode) ->
 					end
 			end
 	end.
+
+qp(Commands) ->
+    q(Commands).
+
+transaction(Commands) ->
+    Transaction = [["multi"]|Commands] ++ [["exec"]],
+    Result = qp(Transaction),
+    lists:nth(erlang:length(Result),Result).
 
 query_eredis_pool(PoolName,[[X|Y]|Z]) when is_list(X) ->
     query_eredis_pool(PoolName,[[X|Y]|Z],qp);
@@ -101,12 +112,14 @@ get_key_slot(Key) ->
 
 %% =============================================================================
 %% @doc Return the first key in the command arguments.
+%% In a normal query, the second term will be returned
 %%
-%% Currently we just return the second argument
-%% after the command name.
+%% If it is a pipeline query we will use the second term of the first term, we
+%% will assume that all keys are in the same server and the query can be
+%% performed
 %%
-%% This is indeed the key for most commands, and when it is not true
-%% the cluster redirection will point us to the right node anyway.
+%% If the pipeline query starts with multi (transaction), we will look at the
+%% second term of the second command
 %%
 %% For commands that don't make sense in the context of cluster
 %% return value will be undefined.
@@ -114,21 +127,22 @@ get_key_slot(Key) ->
 %% =============================================================================
 
 -spec get_key_from_command([string()]) -> string() | undefined.
-get_key_from_command([[X|Y]|_]) when is_list(X) ->
-    get_key_from_command([X|Y]);
+get_key_from_command([[X|Y]|Z]) when is_list(X) ->
+    case string:to_lower(X) of
+        "multi" ->
+            get_key_from_command(Z);
+        _ ->
+            get_key_from_command([X|Y])
+    end;
 get_key_from_command([Term1,Term2|_]) ->
 	case string:to_lower(Term1) of
-		"info" ->
-			undefined;
-		"multi" ->
-			undefined;
-		"exec" ->
-			undefined;
-		"slaveof" ->
+        "info" ->
 			undefined;
 		"config" ->
 			undefined;
-		"shutdown" ->
+        "shutdown" ->
+			undefined;
+        "slaveof" ->
 			undefined;
 		_ ->
 			Term2

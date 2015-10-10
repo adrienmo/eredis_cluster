@@ -60,8 +60,8 @@ initialize_slots_cache() ->
 get_random_pool() ->
     gen_server:call(?MODULE,get_random_pool).
 
-remove_pool(Connection) ->
-    gen_server:call(?MODULE,{remove_pool,Connection}).
+remove_pool(Pool) ->
+    gen_server:call(?MODULE,{remove_pool,Pool}).
 
 get_pool_by_slot(Slot) ->
     gen_server:call(?MODULE,{get_pool_by_slot,Slot}).
@@ -79,27 +79,32 @@ get_slots_map() ->
 get_pool_by_slot(State,Slot) ->
 	Index = lists:nth(Slot+1,State#state.slots),
 	Cluster = lists:nth(Index,State#state.slots_maps),
-	Cluster#slots_map.node#node.pool.
+    if
+        Cluster#slots_map.node =/= undefined ->
+            Cluster#slots_map.node#node.pool;
+        true ->
+            undefined
+    end.
 
 get_slots_map(State) ->
     State#state.slots.
 
-remove_pool(State,Connection) ->
+remove_pool(State,Pool) ->
 	SlotsMaps = State#state.slots_maps,
-    eredis_cluster_pools_sup:stop_eredis_pool(Connection),
-	NewSlotsMaps = [remove_node_by_connection(SlotsMap,Connection) || SlotsMap <- SlotsMaps],
+    eredis_cluster_pools_sup:stop_eredis_pool(Pool),
+	NewSlotsMaps = [remove_node_by_pool(SlotsMap,Pool) || SlotsMap <- SlotsMaps],
 	State#state{slots_maps=NewSlotsMaps}.
 
-remove_node_by_connection(SlotsMap,Connection) ->
+remove_node_by_pool(SlotsMap,Pool) ->
 	if
-		SlotsMap#slots_map.node#node.pool =:= Connection ->
+		SlotsMap#slots_map.node#node.pool =:= Pool ->
 			SlotsMap#slots_map{node=undefined};
 		true ->
 			SlotsMap
 	end.
 
 %% =============================================================================
-%% @doc Return a link to a random node, or raise an error if no node can be
+%% @doc Return a link to a random pool, or raise an error if no pool can be
 %% contacted. This function is only called when we can't reach the node
 %% associated with a given hash slot, or when we don't know the right
 %% mapping.
@@ -110,20 +115,17 @@ get_random_pool(State) ->
 	SlotsMaps = State#state.slots_maps,
 	NbSlotsRange = erlang:length(SlotsMaps),
 	Index = random:uniform(NbSlotsRange),
-    ArrangedList = lists_shift(SlotsMaps,Index),
-	find_connection(ArrangedList).
+    ArrangedList = eredis_cluster_utils:lists_shift(SlotsMaps,Index),
+	find_pool(ArrangedList).
 
-lists_shift(List,Index) ->
-    lists:sublist(List,Index) ++ lists:nthtail(Index,List).
-
-find_connection([]) ->
+find_pool([]) ->
     cluster_down;
-find_connection([H|T]) ->
+find_pool([H|T]) ->
     if
         H#slots_map.node =/= undefined ->
-            H#slots_map.node;
+            H#slots_map.node#node.pool;
         true ->
-            find_connection(T)
+            find_pool(T)
     end.
 
 initialize_slots_cache(State) ->
@@ -266,8 +268,8 @@ handle_call(initialize_slots_cache, _From, State) ->
 	{reply, ok, initialize_slots_cache(State)};
 handle_call(get_random_pool, _From, State) ->
 	{reply, get_random_pool(State), State};
-handle_call({remove_pool, Connection}, _From, State) ->
-	{reply, ok, remove_pool(State,Connection)};
+handle_call({remove_pool, Pool}, _From, State) ->
+	{reply, ok, remove_pool(State,Pool)};
 handle_call({get_pool_by_slot, Slot}, _From, State) ->
 	{reply, get_pool_by_slot(State,Slot), State};
 handle_call({connect, InitServers}, _From, _State) ->

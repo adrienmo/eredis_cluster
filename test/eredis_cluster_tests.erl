@@ -33,6 +33,13 @@ basic_test_() ->
                 ?assertNotMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qp([["SET", "a1", "aaa"], ["SET", "a2", "aaa"], ["SET", "a3", "aaa"]])),
                 ?assertMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qp([["LPUSH", "a", "aaa"], ["LPUSH", "a", "bbb"], ["LPUSH", "a", "ccc"]]))
             end
+            },
+
+            { "transaction",
+            fun () ->
+                ?assertMatch({ok,[_,_,_]}, eredis_cluster:transaction([["get","abc"],["get","abcd"],["get","abcd1"]])),
+                ?assertMatch({error,_}, eredis_cluster:transaction([["get","abc"],["get","abcde"],["get","abcd1"]]))
+            end
             }
 
       ]
