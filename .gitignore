@@ -10,3 +10,4 @@ rel/example_project
 .rebar
 rebar.lock
 _build/
+priv/

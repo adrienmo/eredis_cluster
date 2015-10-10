@@ -20,7 +20,7 @@ init([]) ->
 				{eredis_cluster_pools_sup, start_link, []},
 				permanent, 5000, supervisor, [dynamic]},
 			{eredis_cluster,
-				{eredis_cluster, start_link, []},
+				{eredis_cluster_monitor, start_link, []},
 				permanent, 5000, worker, [dynamic]}
 			],
 	{ok, {{one_for_one, 1, 5}, Procs}}.

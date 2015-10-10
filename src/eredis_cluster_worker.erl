@@ -12,16 +12,30 @@ start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
 init(Args) ->
-    %%process_flag(trap_exit, true),
     Hostname = proplists:get_value(host, Args),
     Port = proplists:get_value(port, Args),
     PoolName = proplists:get_value(pool_name, Args),
     eredis_cluster_pools_sup:register_worker_connection(PoolName),
-    {ok, Conn} = eredis:start_link(Hostname,Port),
+
+    process_flag(trap_exit, true),
+    Result = eredis:start_link(Hostname,Port),
+    process_flag(trap_exit, false),
+
+    Conn = case Result of
+        {ok,Connection} ->
+            Connection;
+        _ ->
+            undefined
+    end,
+
     {ok, #state{conn=Conn}}.
 
+handle_call({q, _}, _From, #state{conn=undefined}=State) ->
+    {reply, {error,no_connection}, State};
 handle_call({q, Params}, _From, #state{conn=Conn}=State) ->
     {reply, eredis:q(Conn,Params), State};
+handle_call({qp, _}, _From, #state{conn=undefined}=State) ->
+    {reply, {error,no_connection}, State};
 handle_call({qp, Params}, _From, #state{conn=Conn}=State) ->
     {reply, eredis:qp(Conn,Params), State};
 handle_call(_Request, _From, State) ->

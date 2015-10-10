@@ -5,9 +5,12 @@
 eredis_cluster is a wrapper for eredis to support cluster mode of redis 3.0.0+
 This project is under development
 
-**Todo**
+## TODO
 
-- Enhance the way poolboy is used
+- Fix/Add specs of functions
+- Add dialyzer
+- Add safeguard if keys of a pipeline command is not located in the same server
+- Improve unit tests
 
 ## Compilation && Test
 
@@ -32,7 +35,7 @@ To configure the redis cluster, you can use an application variable (probably in
 	}
 
 You don't need to specify all nodes of your configuration as eredis_cluster will
-retrieve them through the command `CLUSTER NODES` at runtime.
+retrieve them through the command `CLUSTER SLOTS` at runtime.
 
 ## Usage
 
@@ -44,3 +47,6 @@ retrieve them through the command `CLUSTER NODES` at runtime.
 
 	%% Pipeline
 	eredis_cluster:qp([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
+
+	%% Transaction
+	eredis_cluster:transaction([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).

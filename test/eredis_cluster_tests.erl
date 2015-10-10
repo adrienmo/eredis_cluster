@@ -33,30 +33,15 @@ basic_test_() ->
                 ?assertNotMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qp([["SET", "a1", "aaa"], ["SET", "a2", "aaa"], ["SET", "a3", "aaa"]])),
                 ?assertMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qp([["LPUSH", "a", "aaa"], ["LPUSH", "a", "bbb"], ["LPUSH", "a", "ccc"]]))
             end
+            },
+
+            { "transaction",
+            fun () ->
+                ?assertMatch({ok,[_,_,_]}, eredis_cluster:transaction([["get","abc"],["get","abcd"],["get","abcd1"]])),
+                ?assertMatch({error,_}, eredis_cluster:transaction([["get","abc"],["get","abcde"],["get","abcd1"]]))
+            end
             }
 
       ]
     }
 }.
-
-transaction_test_() ->
-    {inparallel,
-        {setup, ?Setup, ?Clearnup,
-        [
-            { "transaction",
-            fun () ->
-                ?assertMatch({ok, _},  eredis_cluster:transaction(fun (Worker) ->
-                    gen_server:call(Worker, {q, ["SET", "aa", "111"]}),
-                    gen_server:call(Worker, {q, ["DEL", "aa"]})
-                end, "aa")),
-                
-                %%TODO this test may not pass in certain cluster configuration
-                ?assertMatch({error, _},  eredis_cluster:transaction(fun (Worker) ->
-                    gen_server:call(Worker, {q, ["SET", "aa", "111"]}),
-                    gen_server:call(Worker, {q, ["DEL", "bb"]})
-                end, "aa"))
-            end
-            }
-        ]
-        }
-    }.
