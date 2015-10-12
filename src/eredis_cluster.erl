@@ -1,58 +1,51 @@
 -module(eredis_cluster).
 
 -define(REDIS_CLUSTER_REQUEST_TTL,16).
+-define(REDIS_RETRY_DELAY,100).
 
 -export([connect/1]).
 -export([q/1]).
 -export([qp/1]).
 -export([transaction/1]).
--export([has_same_key/1]).
--export([get_slots_map/0]).
 
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
 
 q(Command) ->
-    q(Command,0,false).
-q(_,?REDIS_CLUSTER_REQUEST_TTL,_) ->
+    q(Command,0).
+q(_,?REDIS_CLUSTER_REQUEST_TTL) ->
     {error,no_connection};
-q(Command,Counter,TryRandomNode) ->
+q(Command,Counter) ->
+
+    %% Throttle retries
+    if
+        Counter > 1 ->
+            timer:sleep(?REDIS_RETRY_DELAY);
+        true ->
+            ok
+    end,
+
+    %% Extract key from request
 	case get_key_from_command(Command) of
 		undefined ->
 			{error, invalid_cluster_command};
 		Key ->
 			Slot = get_key_slot(Key),
 
-			Pool = if
-				TryRandomNode =:= false ->
-					eredis_cluster_monitor:get_pool_by_slot(Slot);
-				true ->
-                    if
-                        Counter > 1 ->
-                            timer:sleep(100);
-                        true ->
-                            ok
-                    end,
-					eredis_cluster_monitor:get_random_pool()
-			end,
+			case eredis_cluster_monitor:get_pool_by_slot(Slot) of
+				{Version,undefined} ->
+                    eredis_cluster_monitor:refresh_mapping(Version),
+					q(Command,Counter+1);
 
-			case Pool of
-				undefined ->
-					q(Command,Counter+1,true);
-
-				cluster_down ->
-                    eredis_cluster_monitor:initialize_slots_cache(),
-                    q(Command,Counter+1,false);
-
-				Pool ->
+				{Version,Pool} ->
 					case query_eredis_pool(Pool, Command) of
                         {error,no_connection} ->
-							eredis_cluster_monitor:remove_pool(Pool),
-							q(Command,Counter+1,true);
+                            eredis_cluster_monitor:refresh_mapping(Version),
+							q(Command,Counter+1);
 
 						{error,<<"MOVED ",_RedirectionInfo/binary>>} ->
-                            eredis_cluster_monitor:initialize_slots_cache(),
-							q(Command,Counter+1,false);
+                            eredis_cluster_monitor:refresh_mapping(Version),
+							q(Command,Counter+1);
 
                         Payload ->
                             Payload
@@ -81,9 +74,6 @@ query_eredis_pool(PoolName, Params, Type) ->
         exit:_ ->
             {error,no_connection}
     end.
-
-get_slots_map() ->
-    eredis_cluster_monitor:get_slots_map().
 
 %% =============================================================================
 %% @doc Return the hash slot from the key
@@ -149,12 +139,3 @@ get_key_from_command([Term1,Term2|_]) ->
 	end;
 get_key_from_command(_) ->
     undefined.
-
-has_same_key([[_,Key|_]|T]) ->
-    has_same_key(T,Key).
-has_same_key([],_) ->
-    true;
-has_same_key([[_,Key|_]|T],Key) ->
-    has_same_key(T,Key);
-has_same_key(_,_) ->
-    false.

@@ -3,35 +3,33 @@
 
 -define(REDIS_CLUSTER_HASH_SLOTS,16384).
 
--record(slots_map, {
-    start_slot :: integer(),
-    end_slot :: integer(),
-    name :: atom(),
-    index :: integer(),
-    node :: node()
-}).
-
 -record(node, {
     address :: string(),
     port :: integer(),
     pool :: atom()
 }).
 
+-record(slots_map, {
+    start_slot :: integer(),
+    end_slot :: integer(),
+    name :: atom(),
+    index :: integer(),
+    node :: #node{}
+}).
+
 -record(state, {
 	init_nodes :: [#node{}],
 	slots :: [integer()],
-	slots_maps :: [#slots_map{}]
+	slots_maps :: [#slots_map{}],
+    version :: integer()
 }).
 
 %% API.
 -export([start/0]).
 -export([start_link/0]).
 -export([connect/1]).
--export([initialize_slots_cache/0]).
--export([get_random_pool/0]).
--export([remove_pool/1]).
+-export([refresh_mapping/1]).
 -export([get_pool_by_slot/1]).
--export([get_slots_map/0]).
 
 %% gen_server.
 -export([init/1]).
@@ -54,81 +52,27 @@ start_link() ->
 connect(InitServers) ->
 	gen_server:call(?MODULE,{connect,InitServers}).
 
-initialize_slots_cache() ->
-    gen_server:call(?MODULE,initialize_slots_cache).
-
-get_random_pool() ->
-    gen_server:call(?MODULE,get_random_pool).
-
-remove_pool(Pool) ->
-    gen_server:call(?MODULE,{remove_pool,Pool}).
-
-get_pool_by_slot(Slot) ->
-    gen_server:call(?MODULE,{get_pool_by_slot,Slot}).
-
-get_slots_map() ->
-    gen_server:call(?MODULE,get_slots_map).
+refresh_mapping(Version) ->
+    gen_server:call(?MODULE,{reload_slots_map,Version}).
 
 %% =============================================================================
 %% @doc Given a slot return the link (Redis instance) to the mapped
-%% node. Make sure to create a connection with the node if we don't
-%% have one.
+%% node.
 %% @end
 %% =============================================================================
 
-get_pool_by_slot(State,Slot) ->
+get_pool_by_slot(Slot) ->
+    [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
 	Index = lists:nth(Slot+1,State#state.slots),
 	Cluster = lists:nth(Index,State#state.slots_maps),
     if
         Cluster#slots_map.node =/= undefined ->
-            Cluster#slots_map.node#node.pool;
+            {State#state.version,Cluster#slots_map.node#node.pool};
         true ->
-            undefined
+            {State#state.version,undefined}
     end.
 
-get_slots_map(State) ->
-    State#state.slots.
-
-remove_pool(State,Pool) ->
-	SlotsMaps = State#state.slots_maps,
-    eredis_cluster_pools_sup:stop_eredis_pool(Pool),
-	NewSlotsMaps = [remove_node_by_pool(SlotsMap,Pool) || SlotsMap <- SlotsMaps],
-	State#state{slots_maps=NewSlotsMaps}.
-
-remove_node_by_pool(SlotsMap,Pool) ->
-	if
-		SlotsMap#slots_map.node#node.pool =:= Pool ->
-			SlotsMap#slots_map{node=undefined};
-		true ->
-			SlotsMap
-	end.
-
-%% =============================================================================
-%% @doc Return a link to a random pool, or raise an error if no pool can be
-%% contacted. This function is only called when we can't reach the node
-%% associated with a given hash slot, or when we don't know the right
-%% mapping.
-%% @end
-%% =============================================================================
-
-get_random_pool(State) ->
-	SlotsMaps = State#state.slots_maps,
-	NbSlotsRange = erlang:length(SlotsMaps),
-	Index = random:uniform(NbSlotsRange),
-    ArrangedList = eredis_cluster_utils:lists_shift(SlotsMaps,Index),
-	find_pool(ArrangedList).
-
-find_pool([]) ->
-    cluster_down;
-find_pool([H|T]) ->
-    if
-        H#slots_map.node =/= undefined ->
-            H#slots_map.node#node.pool;
-        true ->
-            find_pool(T)
-    end.
-
-initialize_slots_cache(State) ->
+reload_slots_map(State) ->
 	[close_connection(SlotsMap) || SlotsMap <- State#state.slots_maps],
 
 	ClusterInfo = get_cluster_info(State#state.init_nodes),
@@ -137,10 +81,15 @@ initialize_slots_cache(State) ->
     ConnectedSlotsMaps = connect_all_slots(SlotsMaps),
     Slots = create_slots_cache(ConnectedSlotsMaps),
 
-	State#state{
+	NewState = State#state{
 		slots = Slots,
-		slots_maps = ConnectedSlotsMaps
-	}.
+		slots_maps = ConnectedSlotsMaps,
+        version = State#state.version + 1
+	},
+
+    true = ets:insert(?MODULE, [{cluster_state, NewState}]),
+
+    NewState.
 
 get_cluster_info([]) ->
 	throw({error,cannot_connect_to_cluster});
@@ -251,27 +200,23 @@ connect_(InitNodes) ->
 	State = #state{
 		slots = undefined,
 		slots_maps = [],
-		init_nodes = Nodes
+		init_nodes = Nodes,
+        version = 0
 	},
 
-	initialize_slots_cache(State).
+	reload_slots_map(State).
 
 %% gen_server.
 
 init(_Args) ->
+    ets:new(?MODULE, [protected, set, named_table, {read_concurrency, true}]),
     InitNodes = application:get_env(eredis_cluster, init_nodes, []),
 	{ok, connect_(InitNodes)}.
 
-handle_call(get_slots_map, _From, State) ->
-	{reply, get_slots_map(State), State};
-handle_call(initialize_slots_cache, _From, State) ->
-	{reply, ok, initialize_slots_cache(State)};
-handle_call(get_random_pool, _From, State) ->
-	{reply, get_random_pool(State), State};
-handle_call({remove_pool, Pool}, _From, State) ->
-	{reply, ok, remove_pool(State,Pool)};
-handle_call({get_pool_by_slot, Slot}, _From, State) ->
-	{reply, get_pool_by_slot(State,Slot), State};
+handle_call({reload_slots_map,Version}, _From, #state{version=Version} = State) ->
+	{reply, ok, reload_slots_map(State)};
+handle_call({reload_slots_map,_}, _From, State) ->
+	{reply, ok, State};
 handle_call({connect, InitServers}, _From, _State) ->
 	{reply, ok, connect_(InitServers)};
 handle_call(_Request, _From, State) ->

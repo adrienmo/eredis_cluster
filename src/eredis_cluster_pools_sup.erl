@@ -1,6 +1,5 @@
 -module(eredis_cluster_pools_sup).
 -behaviour(supervisor).
--define(POOLS_RESTART_COUNTER,eredis_cluster_pools_counter).
 -define(MAX_RETRY,20).
 
 %% ====================================================================
@@ -18,13 +17,13 @@
 %% ====================================================================
 
 start_link() ->
-	ets:new(?POOLS_RESTART_COUNTER,[set,named_table,public]),
+	ets:new(?MODULE,[set,named_table,public]),
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 create_eredis_pool(Host,Port) ->
 	PoolName = list_to_atom(Host ++ "#" ++ integer_to_list(Port)),
 
-	ets:insert(?POOLS_RESTART_COUNTER,{PoolName,0}),
+	ets:insert(?MODULE,{PoolName,0}),
 
     WorkerArgs = [{host, Host},{port, Port},{pool_name,PoolName}],
 
@@ -42,7 +41,7 @@ create_eredis_pool(Host,Port) ->
 	{Result,PoolName}.
 
 register_worker_connection(PoolName) ->
-	RestartCounter = ets:update_counter(?POOLS_RESTART_COUNTER,PoolName,1),
+	RestartCounter = ets:update_counter(?MODULE,PoolName,1),
 	if
 		RestartCounter =:= ?MAX_RETRY ->
 			stop_eredis_pool(PoolName);
