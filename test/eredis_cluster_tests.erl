@@ -19,6 +19,14 @@ basic_test_() ->
             end
             },
 
+            { "binary",
+            fun() ->
+                ?assertEqual({ok, <<"OK">>}, eredis_cluster:q([<<"SET">>, <<"key_binary">>, <<"value_binary">>])),
+                ?assertEqual({ok, <<"value_binary">>}, eredis_cluster:q([<<"GET">>,<<"key_binary">>])),
+                ?assertEqual([{ok, <<"value_binary">>},{ok, <<"value_binary">>}], eredis_cluster:qp([[<<"GET">>,<<"key_binary">>],[<<"GET">>,<<"key_binary">>]]))
+            end
+            },
+
             { "delete test",
             fun() ->
                 ?assertMatch({ok, _}, eredis_cluster:q(["DEL", "a"])),

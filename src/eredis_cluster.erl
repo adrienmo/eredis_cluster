@@ -65,7 +65,7 @@ transaction(Commands) ->
     Result = qp(Transaction),
     lists:nth(erlang:length(Result),Result).
 
-query_eredis_pool(PoolName,[[X|Y]|Z]) when is_list(X) ->
+query_eredis_pool(PoolName,[[X|Y]|Z]) when is_list(X); is_binary(X) ->
     query_eredis_pool(PoolName,[[X|Y]|Z],qp);
 query_eredis_pool(PoolName, Command) ->
     query_eredis_pool(PoolName,Command,q).
@@ -120,7 +120,10 @@ get_key_slot(Key) ->
 %% @end
 %% =============================================================================
 
--spec get_key_from_command([string()]) -> string() | undefined.
+-spec get_key_from_command([string() | binary()] | [[string() | binary()]]) ->
+    string() | undefined.
+get_key_from_command([[X|Y]|Z]) when is_binary(X) ->
+    get_key_from_command([[binary_to_list(X)|Y]|Z]);
 get_key_from_command([[X|Y]|Z]) when is_list(X) ->
     case string:to_lower(X) of
         "multi" ->
@@ -128,6 +131,10 @@ get_key_from_command([[X|Y]|Z]) when is_list(X) ->
         _ ->
             get_key_from_command([X|Y])
     end;
+get_key_from_command([Term1,Term2|Rest]) when is_binary(Term1) ->
+    get_key_from_command([binary_to_list(Term1),Term2|Rest]);
+get_key_from_command([Term1,Term2|Rest]) when is_binary(Term2) ->
+    get_key_from_command([Term1,binary_to_list(Term2)|Rest]);
 get_key_from_command([Term1,Term2|_]) ->
 	case string:to_lower(Term1) of
         "info" ->
