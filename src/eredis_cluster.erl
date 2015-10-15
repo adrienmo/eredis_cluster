@@ -3,10 +3,14 @@
 -define(REDIS_CLUSTER_REQUEST_TTL,16).
 -define(REDIS_RETRY_DELAY,100).
 
+-export([start/0]).
 -export([connect/1]).
 -export([q/1]).
 -export([qp/1]).
 -export([transaction/1]).
+
+start() ->
+  application:start(?MODULE).
 
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).

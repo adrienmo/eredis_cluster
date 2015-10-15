@@ -25,7 +25,6 @@
 }).
 
 %% API.
--export([start/0]).
 -export([start_link/0]).
 -export([connect/1]).
 -export([refresh_mapping/1]).
@@ -41,10 +40,6 @@
 
 
 %% API.
-
-start() ->
-  application:start(?MODULE).
-
 -spec start_link() -> {ok, pid()}.
 start_link() ->
 	gen_server:start_link({local,?MODULE}, ?MODULE, [], []).
