@@ -10,7 +10,7 @@
 -export([transaction/1]).
 
 start() ->
-  application:start(?MODULE).
+    application:start(?MODULE).
 
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
@@ -30,32 +30,32 @@ q(Command,Counter) ->
     end,
 
     %% Extract key from request
-	case get_key_from_command(Command) of
-		undefined ->
-			{error, invalid_cluster_command};
-		Key ->
-			Slot = get_key_slot(Key),
+    case get_key_from_command(Command) of
+        undefined ->
+            {error, invalid_cluster_command};
+        Key ->
+            Slot = get_key_slot(Key),
 
-			case eredis_cluster_monitor:get_pool_by_slot(Slot) of
-				{Version,undefined} ->
+            case eredis_cluster_monitor:get_pool_by_slot(Slot) of
+                {Version,undefined} ->
                     eredis_cluster_monitor:refresh_mapping(Version),
-					q(Command,Counter+1);
+                    q(Command,Counter+1);
 
-				{Version,Pool} ->
-					case query_eredis_pool(Pool, Command) of
+                {Version,Pool} ->
+                    case query_eredis_pool(Pool, Command) of
                         {error,no_connection} ->
                             eredis_cluster_monitor:refresh_mapping(Version),
-							q(Command,Counter+1);
+                            q(Command,Counter+1);
 
-						{error,<<"MOVED ",_RedirectionInfo/binary>>} ->
+                        {error,<<"MOVED ",_RedirectionInfo/binary>>} ->
                             eredis_cluster_monitor:refresh_mapping(Version),
-							q(Command,Counter+1);
+                            q(Command,Counter+1);
 
                         Payload ->
                             Payload
-					end
-			end
-	end.
+                    end
+            end
+    end.
 
 qp(Commands) ->
     q(Commands).
@@ -86,23 +86,23 @@ query_eredis_pool(PoolName, Params, Type) ->
 
 -spec get_key_slot(Key::string()) -> Slot::integer().
 get_key_slot(Key) ->
-	KeyToBeHased = case string:chr(Key,${) of
-		0 ->
-			Key;
-		Start ->
-			case string:chr(string:substr(Key,Start+1),$}) of
-				0 ->
-					Key;
-				Length ->
-					if
-						Length =:= 1 ->
-							Key;
-						true ->
-							string:substr(Key,Start+1,Length-1)
-					end
-			end
-	end,
-	eredis_cluster_hash:hash(KeyToBeHased).
+    KeyToBeHased = case string:chr(Key,${) of
+        0 ->
+            Key;
+        Start ->
+            case string:chr(string:substr(Key,Start+1),$}) of
+                0 ->
+                    Key;
+                Length ->
+                    if
+                        Length =:= 1 ->
+                            Key;
+                        true ->
+                            string:substr(Key,Start+1,Length-1)
+                    end
+            end
+    end,
+    eredis_cluster_hash:hash(KeyToBeHased).
 
 %% =============================================================================
 %% @doc Return the first key in the command arguments.
@@ -136,17 +136,17 @@ get_key_from_command([Term1,Term2|Rest]) when is_binary(Term1) ->
 get_key_from_command([Term1,Term2|Rest]) when is_binary(Term2) ->
     get_key_from_command([Term1,binary_to_list(Term2)|Rest]);
 get_key_from_command([Term1,Term2|_]) ->
-	case string:to_lower(Term1) of
+    case string:to_lower(Term1) of
         "info" ->
-			undefined;
-		"config" ->
-			undefined;
+            undefined;
+        "config" ->
+            undefined;
         "shutdown" ->
-			undefined;
+            undefined;
         "slaveof" ->
-			undefined;
-		_ ->
-			Term2
-	end;
+            undefined;
+        _ ->
+            Term2
+    end;
 get_key_from_command(_) ->
     undefined.

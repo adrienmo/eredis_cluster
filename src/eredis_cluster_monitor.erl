@@ -18,9 +18,9 @@
 }).
 
 -record(state, {
-	init_nodes :: [#node{}],
-	slots :: [integer()],
-	slots_maps :: [#slots_map{}],
+    init_nodes :: [#node{}],
+    slots :: [integer()],
+    slots_maps :: [#slots_map{}],
     version :: integer()
 }).
 
@@ -42,10 +42,10 @@
 %% API.
 -spec start_link() -> {ok, pid()}.
 start_link() ->
-	gen_server:start_link({local,?MODULE}, ?MODULE, [], []).
+    gen_server:start_link({local,?MODULE}, ?MODULE, [], []).
 
 connect(InitServers) ->
-	gen_server:call(?MODULE,{connect,InitServers}).
+    gen_server:call(?MODULE,{connect,InitServers}).
 
 refresh_mapping(Version) ->
     gen_server:call(?MODULE,{reload_slots_map,Version}).
@@ -58,8 +58,8 @@ refresh_mapping(Version) ->
 
 get_pool_by_slot(Slot) ->
     [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
-	Index = lists:nth(Slot+1,State#state.slots),
-	Cluster = lists:nth(Index,State#state.slots_maps),
+    Index = lists:nth(Slot+1,State#state.slots),
+    Cluster = lists:nth(Index,State#state.slots_maps),
     if
         Cluster#slots_map.node =/= undefined ->
             {State#state.version,Cluster#slots_map.node#node.pool};
@@ -68,43 +68,43 @@ get_pool_by_slot(Slot) ->
     end.
 
 reload_slots_map(State) ->
-	[close_connection(SlotsMap) || SlotsMap <- State#state.slots_maps],
+    [close_connection(SlotsMap) || SlotsMap <- State#state.slots_maps],
 
-	ClusterInfo = get_cluster_info(State#state.init_nodes),
+    ClusterInfo = get_cluster_info(State#state.init_nodes),
 
     SlotsMaps = parse_cluster_info(ClusterInfo),
     ConnectedSlotsMaps = connect_all_slots(SlotsMaps),
     Slots = create_slots_cache(ConnectedSlotsMaps),
 
-	NewState = State#state{
-		slots = Slots,
-		slots_maps = ConnectedSlotsMaps,
+    NewState = State#state{
+        slots = Slots,
+        slots_maps = ConnectedSlotsMaps,
         version = State#state.version + 1
-	},
+    },
 
     true = ets:insert(?MODULE, [{cluster_state, NewState}]),
 
     NewState.
 
 get_cluster_info([]) ->
-	throw({error,cannot_connect_to_cluster});
+    throw({error,cannot_connect_to_cluster});
 get_cluster_info([Node|T]) ->
-	case safe_eredis_start_link(Node#node.address, Node#node.port) of
-		{ok,Connection} ->
-  		case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
+    case safe_eredis_start_link(Node#node.address, Node#node.port) of
+        {ok,Connection} ->
+          case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
             {error,<<"ERR unknown command 'CLUSTER'">>} ->
                 cluster_info_from_single_node(Node);
             {error,<<"ERR This instance has cluster support disabled">>} ->
                 cluster_info_from_single_node(Node);
-			{ok, ClusterInfo} ->
-				eredis:stop(Connection),
-				ClusterInfo;
-			_ ->
-				eredis:stop(Connection),
-				get_cluster_info(T)
-		end;
-		_ ->
-			get_cluster_info(T)
+            {ok, ClusterInfo} ->
+                eredis:stop(Connection),
+                ClusterInfo;
+            _ ->
+                eredis:stop(Connection),
+                get_cluster_info(T)
+        end;
+        _ ->
+            get_cluster_info(T)
   end.
 
 cluster_info_from_single_node(Node) ->
@@ -114,19 +114,19 @@ cluster_info_from_single_node(Node) ->
     integer_to_binary(Node#node.port)]]].
 
 close_connection(SlotsMap) ->
-	Node = SlotsMap#slots_map.node,
-	if
-		Node =/= undefined ->
-			try eredis_cluster_pools_sup:stop_eredis_pool(Node#node.pool) of
+    Node = SlotsMap#slots_map.node,
+    if
+        Node =/= undefined ->
+            try eredis_cluster_pools_sup:stop_eredis_pool(Node#node.pool) of
                 _ ->
                     ok
             catch
                 _ ->
                     ok
             end;
-		true ->
-			ok
-	end.
+        true ->
+            ok
+    end.
 
 connect_node(Node) ->
     case eredis_cluster_pools_sup:create_eredis_pool(Node#node.address, Node#node.port) of
@@ -144,28 +144,28 @@ safe_eredis_start_link(Address,Port) ->
 
 create_slots_cache(SlotsMaps) ->
   SlotsCache = [[{Index,SlotsMap#slots_map.index}
-		|| Index <- lists:seq(SlotsMap#slots_map.start_slot,
-			SlotsMap#slots_map.end_slot)]
-		|| SlotsMap <- SlotsMaps],
+        || Index <- lists:seq(SlotsMap#slots_map.start_slot,
+            SlotsMap#slots_map.end_slot)]
+        || SlotsMap <- SlotsMaps],
   SlotsCacheF = lists:flatten(SlotsCache),
   SortedSlotsCache = lists:sort(SlotsCacheF),
   [ Index || {_,Index} <- SortedSlotsCache].
 
 connect_all_slots(ClusterSlots) ->
   [ClusterSlot#slots_map{node=connect_node(ClusterSlot#slots_map.node)}
-		|| ClusterSlot <- ClusterSlots].
+        || ClusterSlot <- ClusterSlots].
 
 
 parse_cluster_info(ClusterInfo) ->
-	Length = erlang:length(ClusterInfo),
-	ClusterInfoI = lists:zip(ClusterInfo,lists:seq(1,Length)),
-	ClusterSlots = [parse_cluster_slot(ClusterSlot,Index)
-		|| {ClusterSlot,Index} <- ClusterInfoI],
-	ClusterSlots.
+    Length = erlang:length(ClusterInfo),
+    ClusterInfoI = lists:zip(ClusterInfo,lists:seq(1,Length)),
+    ClusterSlots = [parse_cluster_slot(ClusterSlot,Index)
+        || {ClusterSlot,Index} <- ClusterInfoI],
+    ClusterSlots.
 
 parse_cluster_slot(ClusterSlot,Index) ->
-	[StartSlot,EndSlot|Nodes] = ClusterSlot,
-	#slots_map{
+    [StartSlot,EndSlot|Nodes] = ClusterSlot,
+    #slots_map{
         name = get_slot_name(StartSlot,EndSlot),
         index = Index,
         start_slot = binary_to_integer(StartSlot),
@@ -180,7 +180,7 @@ get_slot_name(StartSlot,EndSlot) ->
     list_to_atom(ClusterNameStr).
 
 parse_node(Nodes) ->
-	[Address,Port] = lists:nth(1,Nodes),
+    [Address,Port] = lists:nth(1,Nodes),
     #node{
         address = binary_to_list(Address),
         port = binary_to_integer(Port)
@@ -190,41 +190,41 @@ connect_([]) ->
     #state{};
 connect_(InitNodes) ->
 
-	Nodes = [#node{address = A,port = P} || {A,P} <- InitNodes],
+    Nodes = [#node{address = A,port = P} || {A,P} <- InitNodes],
 
-	State = #state{
-		slots = undefined,
-		slots_maps = [],
-		init_nodes = Nodes,
+    State = #state{
+        slots = undefined,
+        slots_maps = [],
+        init_nodes = Nodes,
         version = 0
-	},
+    },
 
-	reload_slots_map(State).
+    reload_slots_map(State).
 
 %% gen_server.
 
 init(_Args) ->
     ets:new(?MODULE, [protected, set, named_table, {read_concurrency, true}]),
     InitNodes = application:get_env(eredis_cluster, init_nodes, []),
-	{ok, connect_(InitNodes)}.
+    {ok, connect_(InitNodes)}.
 
 handle_call({reload_slots_map,Version}, _From, #state{version=Version} = State) ->
-	{reply, ok, reload_slots_map(State)};
+    {reply, ok, reload_slots_map(State)};
 handle_call({reload_slots_map,_}, _From, State) ->
-	{reply, ok, State};
+    {reply, ok, State};
 handle_call({connect, InitServers}, _From, _State) ->
-	{reply, ok, connect_(InitServers)};
+    {reply, ok, connect_(InitServers)};
 handle_call(_Request, _From, State) ->
-	{reply, ignored, State}.
+    {reply, ignored, State}.
 
 handle_cast(_Msg, State) ->
-	{noreply, State}.
+    {noreply, State}.
 
 handle_info(_Info, State) ->
-	{noreply, State}.
+    {noreply, State}.
 
 terminate(_Reason, _State) ->
-	ok.
+    ok.
 
 code_change(_OldVsn, State, _Extra) ->
-	{ok, State}.
+    {ok, State}.

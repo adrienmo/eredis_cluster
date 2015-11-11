@@ -23,22 +23,27 @@ start_link() ->
 create_eredis_pool(Host,Port) ->
 	PoolName = list_to_atom(Host ++ "#" ++ integer_to_list(Port)),
 
-	ets:insert(?MODULE,{PoolName,0}),
+    case whereis(PoolName) of
+        undefined ->
+            ets:insert(?MODULE,{PoolName,0}),
 
-    WorkerArgs = [{host, Host},{port, Port},{pool_name,PoolName}],
+            WorkerArgs = [{host, Host},{port, Port},{pool_name,PoolName}],
 
-	Size = application:get_env(eredis_cluster, pool_size, 10),
-	MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
+        	Size = application:get_env(eredis_cluster, pool_size, 10),
+        	MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
 
-    PoolArgs = [{name, {local, PoolName}},
-                {worker_module, eredis_cluster_worker},
-                {size, Size},
-                {max_overflow, MaxOverflow}],
+            PoolArgs = [{name, {local, PoolName}},
+                        {worker_module, eredis_cluster_worker},
+                        {size, Size},
+                        {max_overflow, MaxOverflow}],
 
-    ChildSpec = poolboy:child_spec(PoolName, PoolArgs, WorkerArgs),
+            ChildSpec = poolboy:child_spec(PoolName, PoolArgs, WorkerArgs),
 
-    {Result,_} = supervisor:start_child(?MODULE,ChildSpec),
-	{Result,PoolName}.
+            {Result,_} = supervisor:start_child(?MODULE,ChildSpec),
+        	{Result,PoolName};
+        _ ->
+            {ok,PoolName}
+    end.
 
 register_worker_connection(PoolName) ->
 	RestartCounter = ets:update_counter(?MODULE,PoolName,1),

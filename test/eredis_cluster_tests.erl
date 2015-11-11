@@ -45,7 +45,7 @@ basic_test_() ->
 
             { "transaction",
             fun () ->
-                ?assertMatch({ok,[_,_,_]}, eredis_cluster:transaction([["get","abc"],["get","abcd"],["get","abcd1"]])),
+                ?assertMatch({ok,[_,_,_]}, eredis_cluster:transaction([["get","abc"],["get","abc"],["get","abc"]])),
                 ?assertMatch({error,_}, eredis_cluster:transaction([["get","abc"],["get","abcde"],["get","abcd1"]]))
             end
             }

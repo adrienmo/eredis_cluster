@@ -1,12 +1,12 @@
 {application, eredis_cluster, [
-	{description, "Eredis Cluster"},
-	{vsn, "0.3.2"},
-	{modules, []},
-	{registered, []},
-	{applications, [
-		kernel,
-		stdlib
-	]},
-	{mod, {eredis_cluster_app, []}},
-	{env, []}
+    {description, "Eredis Cluster"},
+    {vsn, "0.4.0"},
+    {modules, []},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {mod, {eredis_cluster_app, []}},
+    {env, []}
 ]}.
