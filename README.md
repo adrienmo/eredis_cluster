@@ -3,12 +3,12 @@
 ## Description
 
 eredis_cluster is a wrapper for eredis to support cluster mode of redis 3.0.0+
-This project is under development
+This project is under development.
+Travis CI build status: [![Build Status](https://travis-ci.org/adrienmo/eredis_cluster.svg?branch=master)](https://travis-ci.org/adrienmo/eredis_cluster)
 
 ## TODO
 
 - Fix/Add specs of functions
-- Add dialyzer
 - Add safeguard if keys of a pipeline command is not located in the same server
 - Improve unit tests
 
