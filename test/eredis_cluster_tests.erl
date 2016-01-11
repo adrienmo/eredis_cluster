@@ -48,6 +48,30 @@ basic_test_() ->
                 ?assertMatch({ok,[_,_,_]}, eredis_cluster:transaction([["get","abc"],["get","abc"],["get","abc"]])),
                 ?assertMatch({error,_}, eredis_cluster:transaction([["get","abc"],["get","abcde"],["get","abcd1"]]))
             end
+            },
+
+            { "eval key",
+            fun () ->
+                eredis_cluster:q(["del", "foo"]),
+                eredis_cluster:q(["eval","return redis.call('set',KEYS[1],'bar')", "1", "foo"]),
+                ?assertEqual({ok, <<"bar">>}, eredis_cluster:q(["GET", "foo"]))
+            end
+            },
+
+            { "evalsha",
+            fun () ->
+                eredis_cluster:q(["del", "foo2"]),
+                {ok, Hash} = eredis_cluster:q(["script","load","return redis.call('set',KEYS[1],'bar')"]),
+                eredis_cluster:q(["evalsha", Hash, 1, "foo2"]),
+                ?assertEqual({ok, <<"bar">>}, eredis_cluster:q(["GET", "foo2"]))
+            end
+            },
+
+            { "bitstring support",
+            fun () ->
+                eredis_cluster:q([<<"set">>, <<"bitstring">>,<<"support">>]),
+                ?assertEqual({ok, <<"support">>}, eredis_cluster:q([<<"GET">>, <<"bitstring">>]))
+            end
             }
 
       ]

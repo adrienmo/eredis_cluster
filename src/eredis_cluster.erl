@@ -122,8 +122,8 @@ get_key_slot(Key) ->
 
 -spec get_key_from_command([string() | binary()] | [[string() | binary()]]) ->
     string() | undefined.
-get_key_from_command([[X|Y]|Z]) when is_binary(X) ->
-    get_key_from_command([[binary_to_list(X)|Y]|Z]);
+get_key_from_command([[X|Y]|Z]) when is_bitstring(X) ->
+    get_key_from_command([[bitstring_to_list(X)|Y]|Z]);
 get_key_from_command([[X|Y]|Z]) when is_list(X) ->
     case string:to_lower(X) of
         "multi" ->
@@ -131,11 +131,11 @@ get_key_from_command([[X|Y]|Z]) when is_list(X) ->
         _ ->
             get_key_from_command([X|Y])
     end;
-get_key_from_command([Term1,Term2|Rest]) when is_binary(Term1) ->
-    get_key_from_command([binary_to_list(Term1),Term2|Rest]);
-get_key_from_command([Term1,Term2|Rest]) when is_binary(Term2) ->
-    get_key_from_command([Term1,binary_to_list(Term2)|Rest]);
-get_key_from_command([Term1,Term2|_]) ->
+get_key_from_command([Term1,Term2|Rest]) when is_bitstring(Term1) ->
+    get_key_from_command([bitstring_to_list(Term1),Term2|Rest]);
+get_key_from_command([Term1,Term2|Rest]) when is_bitstring(Term2) ->
+    get_key_from_command([Term1,bitstring_to_list(Term2)|Rest]);
+get_key_from_command([Term1,Term2|Rest]) ->
     case string:to_lower(Term1) of
         "info" ->
             undefined;
@@ -145,8 +145,19 @@ get_key_from_command([Term1,Term2|_]) ->
             undefined;
         "slaveof" ->
             undefined;
+        "eval" ->
+            get_key_from_rest(Rest);
+        "evalsha" ->
+            get_key_from_rest(Rest);
         _ ->
             Term2
     end;
 get_key_from_command(_) ->
+    undefined.
+
+get_key_from_rest([_,KeyName|_]) when is_bitstring(KeyName) ->
+    bitstring_to_list(KeyName);
+get_key_from_rest([_,KeyName|_]) when is_list(KeyName) ->
+    KeyName;
+get_key_from_rest(_) ->
     undefined.
