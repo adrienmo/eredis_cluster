@@ -1,20 +1,52 @@
 -module(eredis_cluster).
+-behaviour(application).
 
 -define(REDIS_CLUSTER_REQUEST_TTL,16).
 -define(REDIS_RETRY_DELAY,100).
 
--export([start/0]).
+-export([start/0, start/2]).
+-export([stop/0, stop/1]).
 -export([connect/1]).
--export([q/1]).
--export([qp/1]).
--export([transaction/1]).
+-export([q/1, qp/1, transaction/1]).
 
+-type anystring() :: string() | bitstring().
+
+-type redis_simple_command() :: [anystring()].
+-type redis_pipeline_command() :: [redis_simple_command()].
+-type redis_command() :: redis_simple_command() | redis_pipeline_command().
+
+-type redis_error_result() :: Reason::bitstring() | no_connection
+    | invalid_cluster_command.
+-type redis_success_result() :: Result::bitstring().
+-type redis_simple_result() :: {ok, redis_success_result()}
+    | {error, redis_error_result()}.
+-type redis_pipeline_result() :: [redis_simple_result()].
+-type redis_transaction_result() :: {ok, [redis_success_result()]}
+    | {error, redis_error_result()}.
+-type redis_result() :: redis_simple_result() | redis_pipeline_result().
+
+-spec start(StarType::application:start_type(), StartArgs::term()) ->
+    {ok, pid()}.
+start(_Type, _Args) ->
+    eredis_cluster_sup:start_link().
+
+-spec stop(State::term()) -> ok.
+stop(_State) ->
+    ok.
+
+-spec start() -> ok | {error, Reason::term()}.
 start() ->
     application:start(?MODULE).
 
+-spec stop() -> ok | {error, Reason::term()}.
+stop() ->
+    application:stop(?MODULE).
+
+-spec connect(InitServers::term()) -> Result::term().
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
 
+-spec q(redis_command()) -> redis_result().
 q(Command) ->
     q(Command,0).
 q(_,?REDIS_CLUSTER_REQUEST_TTL) ->
@@ -37,19 +69,19 @@ q(Command,Counter) ->
             Slot = get_key_slot(Key),
 
             case eredis_cluster_monitor:get_pool_by_slot(Slot) of
-                {Version,undefined} ->
+                {Version, undefined} ->
                     eredis_cluster_monitor:refresh_mapping(Version),
-                    q(Command,Counter+1);
+                    q(Command, Counter+1);
 
-                {Version,Pool} ->
+                {Version, Pool} ->
                     case query_eredis_pool(Pool, Command) of
-                        {error,no_connection} ->
+                        {error, no_connection} ->
                             eredis_cluster_monitor:refresh_mapping(Version),
-                            q(Command,Counter+1);
+                            q(Command, Counter+1);
 
-                        {error,<<"MOVED ",_RedirectionInfo/binary>>} ->
+                        {error, <<"MOVED ", _RedirectionInfo/binary>>} ->
                             eredis_cluster_monitor:refresh_mapping(Version),
-                            q(Command,Counter+1);
+                            q(Command, Counter+1);
 
                         Payload ->
                             Payload
@@ -57,18 +89,21 @@ q(Command,Counter) ->
             end
     end.
 
+-spec qp(redis_pipeline_command()) -> redis_pipeline_result().
 qp(Commands) ->
     q(Commands).
 
+-spec transaction(redis_pipeline_command()) -> redis_transaction_result().
 transaction(Commands) ->
     Transaction = [["multi"]|Commands] ++ [["exec"]],
     Result = qp(Transaction),
-    lists:nth(erlang:length(Result),Result).
+    lists:last(Result).
 
-query_eredis_pool(PoolName,[[X|Y]|Z]) when is_list(X); is_binary(X) ->
-    query_eredis_pool(PoolName,[[X|Y]|Z],qp);
+-spec query_eredis_pool(atom(), redis_command()) -> redis_result().
+query_eredis_pool(PoolName, [[X|Y]|Z]) when is_list(X); is_binary(X) ->
+    query_eredis_pool(PoolName, [[X|Y]|Z], qp);
 query_eredis_pool(PoolName, Command) ->
-    query_eredis_pool(PoolName,Command,q).
+    query_eredis_pool(PoolName, Command, q).
 query_eredis_pool(PoolName, Params, Type) ->
     try
         poolboy:transaction(PoolName, fun(Worker) ->
@@ -84,7 +119,9 @@ query_eredis_pool(PoolName, Params, Type) ->
 %% @end
 %% =============================================================================
 
--spec get_key_slot(Key::string()) -> Slot::integer().
+-spec get_key_slot(Key::anystring()) -> Slot::integer().
+get_key_slot(Key) when is_bitstring(Key) ->
+    get_key_slot(bitstring_to_list(Key));
 get_key_slot(Key) ->
     KeyToBeHased = case string:chr(Key,${) of
         0 ->
@@ -120,8 +157,7 @@ get_key_slot(Key) ->
 %% @end
 %% =============================================================================
 
--spec get_key_from_command([string() | binary()] | [[string() | binary()]]) ->
-    string() | undefined.
+-spec get_key_from_command(redis_command()) -> string() | undefined.
 get_key_from_command([[X|Y]|Z]) when is_bitstring(X) ->
     get_key_from_command([[bitstring_to_list(X)|Y]|Z]);
 get_key_from_command([[X|Y]|Z]) when is_list(X) ->
@@ -155,6 +191,7 @@ get_key_from_command([Term1,Term2|Rest]) ->
 get_key_from_command(_) ->
     undefined.
 
+-spec get_key_from_rest([anystring()]) -> string() | undefined.
 get_key_from_rest([_,KeyName|_]) when is_bitstring(KeyName) ->
     bitstring_to_list(KeyName);
 get_key_from_rest([_,KeyName|_]) when is_list(KeyName) ->

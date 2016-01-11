@@ -14,8 +14,6 @@ start_link(Args) ->
 init(Args) ->
     Hostname = proplists:get_value(host, Args),
     Port = proplists:get_value(port, Args),
-    PoolName = proplists:get_value(pool_name, Args),
-    eredis_cluster_pools_sup:register_worker_connection(PoolName),
 
     process_flag(trap_exit, true),
     Result = eredis:start_link(Hostname,Port),

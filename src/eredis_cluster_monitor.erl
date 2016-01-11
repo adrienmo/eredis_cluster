@@ -1,7 +1,7 @@
 -module(eredis_cluster_monitor).
 -behaviour(gen_server).
 
--define(REDIS_CLUSTER_HASH_SLOTS,16384).
+-define(REDIS_CLUSTER_HASH_SLOTS, 16384).
 
 -record(node, {
     address :: string(),
@@ -12,15 +12,14 @@
 -record(slots_map, {
     start_slot :: integer(),
     end_slot :: integer(),
-    name :: atom(),
     index :: integer(),
     node :: #node{}
 }).
 
 -record(state, {
     init_nodes :: [#node{}],
-    slots :: [integer()],
-    slots_maps :: [#slots_map{}],
+    slots :: tuple(), %% whose elements are integer indexes into slots_maps
+    slots_maps :: tuple(), %% whose elements are #slots_map{}
     version :: integer()
 }).
 
@@ -56,10 +55,12 @@ refresh_mapping(Version) ->
 %% @end
 %% =============================================================================
 
+-spec get_pool_by_slot(Slot::integer()) ->
+    {Version::integer(), PoolName::atom() | undefined}.
 get_pool_by_slot(Slot) ->
     [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
-    Index = lists:nth(Slot+1,State#state.slots),
-    Cluster = lists:nth(Index,State#state.slots_maps),
+    Index = element(Slot+1,State#state.slots),
+    Cluster = element(Index,State#state.slots_maps),
     if
         Cluster#slots_map.node =/= undefined ->
             {State#state.version,Cluster#slots_map.node#node.pool};
@@ -67,18 +68,20 @@ get_pool_by_slot(Slot) ->
             {State#state.version,undefined}
     end.
 
+-spec reload_slots_map(State::#state{}) -> NewState::#state{}.
 reload_slots_map(State) ->
-    [close_connection(SlotsMap) || SlotsMap <- State#state.slots_maps],
+    [close_connection(SlotsMap)
+        || SlotsMap <- tuple_to_list(State#state.slots_maps)],
 
-    ClusterInfo = get_cluster_info(State#state.init_nodes),
+    ClusterSlots = get_cluster_slots(State#state.init_nodes),
 
-    SlotsMaps = parse_cluster_info(ClusterInfo),
+    SlotsMaps = parse_cluster_slots(ClusterSlots),
     ConnectedSlotsMaps = connect_all_slots(SlotsMaps),
     Slots = create_slots_cache(ConnectedSlotsMaps),
 
     NewState = State#state{
-        slots = Slots,
-        slots_maps = ConnectedSlotsMaps,
+        slots = list_to_tuple(Slots),
+        slots_maps = list_to_tuple(ConnectedSlotsMaps),
         version = State#state.version + 1
     },
 
@@ -86,33 +89,53 @@ reload_slots_map(State) ->
 
     NewState.
 
-get_cluster_info([]) ->
+-spec get_cluster_slots([#node{}]) -> [[bitstring() | [bitstring()]]].
+get_cluster_slots([]) ->
     throw({error,cannot_connect_to_cluster});
-get_cluster_info([Node|T]) ->
+get_cluster_slots([Node|T]) ->
     case safe_eredis_start_link(Node#node.address, Node#node.port) of
         {ok,Connection} ->
           case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
             {error,<<"ERR unknown command 'CLUSTER'">>} ->
-                cluster_info_from_single_node(Node);
+                get_cluster_slots_from_single_node(Node);
             {error,<<"ERR This instance has cluster support disabled">>} ->
-                cluster_info_from_single_node(Node);
+                get_cluster_slots_from_single_node(Node);
             {ok, ClusterInfo} ->
                 eredis:stop(Connection),
                 ClusterInfo;
             _ ->
                 eredis:stop(Connection),
-                get_cluster_info(T)
+                get_cluster_slots(T)
         end;
         _ ->
-            get_cluster_info(T)
+            get_cluster_slots(T)
   end.
 
-cluster_info_from_single_node(Node) ->
-    [[<<"0">>,
-    integer_to_binary(?REDIS_CLUSTER_HASH_SLOTS-1),
-    [list_to_binary(Node#node.address),
-    integer_to_binary(Node#node.port)]]].
+-spec get_cluster_slots_from_single_node(#node{}) ->
+    [[bitstring() | [bitstring()]]].
+get_cluster_slots_from_single_node(Node) ->
+    [[<<"0">>, integer_to_binary(?REDIS_CLUSTER_HASH_SLOTS-1),
+    [list_to_binary(Node#node.address), integer_to_binary(Node#node.port)]]].
 
+-spec parse_cluster_slots([[bitstring() | [bitstring()]]]) -> [#slots_map{}].
+parse_cluster_slots(ClusterInfo) ->
+    Length = erlang:length(ClusterInfo),
+    ClusterInfoI = lists:zip(ClusterInfo,lists:seq(1,Length)),
+    [
+        #slots_map{
+            index = Index,
+            start_slot = binary_to_integer(StartSlot),
+            end_slot = binary_to_integer(EndSlot),
+            node = #node{
+                address = binary_to_list(Address),
+                port = binary_to_integer(Port)
+            }
+        }
+        % Only get the information from the master node (first node) of the list
+        || {[StartSlot, EndSlot | [[Address, Port] | _]],Index} <- ClusterInfoI
+    ].
+
+-spec close_connection(#slots_map{}) -> ok.
 close_connection(SlotsMap) ->
     Node = SlotsMap#slots_map.node,
     if
@@ -128,9 +151,10 @@ close_connection(SlotsMap) ->
             ok
     end.
 
+-spec connect_node(#node{}) -> #node{} | undefined.
 connect_node(Node) ->
     case eredis_cluster_pools_sup:create_eredis_pool(Node#node.address, Node#node.port) of
-        {ok,Pool} ->
+        {ok, Pool} ->
             Node#node{pool=Pool};
         _ ->
             undefined
@@ -142,6 +166,7 @@ safe_eredis_start_link(Address,Port) ->
     process_flag(trap_exit, false),
     Payload.
 
+-spec create_slots_cache([#slots_map{}]) -> [integer()].
 create_slots_cache(SlotsMaps) ->
   SlotsCache = [[{Index,SlotsMap#slots_map.index}
         || Index <- lists:seq(SlotsMap#slots_map.start_slot,
@@ -151,51 +176,19 @@ create_slots_cache(SlotsMaps) ->
   SortedSlotsCache = lists:sort(SlotsCacheF),
   [ Index || {_,Index} <- SortedSlotsCache].
 
-connect_all_slots(ClusterSlots) ->
-  [ClusterSlot#slots_map{node=connect_node(ClusterSlot#slots_map.node)}
-        || ClusterSlot <- ClusterSlots].
+-spec connect_all_slots([#slots_map{}]) -> [integer()].
+connect_all_slots(SlotsMapList) ->
+    [SlotsMap#slots_map{node=connect_node(SlotsMap#slots_map.node)}
+        || SlotsMap <- SlotsMapList].
 
-
-parse_cluster_info(ClusterInfo) ->
-    Length = erlang:length(ClusterInfo),
-    ClusterInfoI = lists:zip(ClusterInfo,lists:seq(1,Length)),
-    ClusterSlots = [parse_cluster_slot(ClusterSlot,Index)
-        || {ClusterSlot,Index} <- ClusterInfoI],
-    ClusterSlots.
-
-parse_cluster_slot(ClusterSlot,Index) ->
-    [StartSlot,EndSlot|Nodes] = ClusterSlot,
-    #slots_map{
-        name = get_slot_name(StartSlot,EndSlot),
-        index = Index,
-        start_slot = binary_to_integer(StartSlot),
-        end_slot = binary_to_integer(EndSlot),
-        node = parse_node(Nodes)
-    }.
-
-get_slot_name(StartSlot,EndSlot) ->
-    ClusterNameStr = binary_to_list(StartSlot)
-        ++ ":"
-        ++ binary_to_list(EndSlot),
-    list_to_atom(ClusterNameStr).
-
-parse_node(Nodes) ->
-    [Address,Port] = lists:nth(1,Nodes),
-    #node{
-        address = binary_to_list(Address),
-        port = binary_to_integer(Port)
-    }.
-
+-spec connect_([{Address::string(), Port::integer()}]) -> #state{}.
 connect_([]) ->
     #state{};
 connect_(InitNodes) ->
-
-    Nodes = [#node{address = A,port = P} || {A,P} <- InitNodes],
-
     State = #state{
         slots = undefined,
-        slots_maps = [],
-        init_nodes = Nodes,
+        slots_maps = {},
+        init_nodes = [#node{address = A, port = P} || {A,P} <- InitNodes],
         version = 0
     },
 

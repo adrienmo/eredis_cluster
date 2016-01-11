@@ -2,10 +2,8 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
--define(Setup, fun() ->
-    application:start(eredis_cluster)
-end).
--define(Clearnup, fun(_) -> application:stop(eredis_cluster)  end).
+-define(Setup, fun() -> eredis_cluster:start() end).
+-define(Clearnup, fun(_) -> eredis_cluster:stop() end).
 
 basic_test_() ->
     {inparallel,
