@@ -62,7 +62,8 @@ basic_test_() ->
             fun () ->
                 eredis_cluster:q(["del", "foo2"]),
                 {ok, Hash} = eredis_cluster:q(["script","load","return redis.call('set',KEYS[1],'bar')"]),
-                eredis_cluster:q(["evalsha", Hash, 1, "foo2"]),
+                erlang:display({hash,Hash}),
+                erlang:display(eredis_cluster:q(["evalsha", Hash, 1, "foo2"])),
                 ?assertEqual({ok, <<"bar">>}, eredis_cluster:q(["GET", "foo2"]))
             end
             },
