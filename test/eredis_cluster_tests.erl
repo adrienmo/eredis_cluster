@@ -63,7 +63,7 @@ basic_test_() ->
                 eredis_cluster:q(["del", "foo2"]),
                 {ok, Hash} = eredis_cluster:q(["script","load","return redis.call('set',KEYS[1],'bar')"]),
                 %Wait for the script to be propagated on the cluster
-                :timer.sleep(2000),
+                timer:sleep(2000),
                 erlang:display({hash,Hash}),
                 erlang:display(eredis_cluster:q(["evalsha", Hash, 1, "load"])),
                 erlang:display(eredis_cluster:q(["evalsha", Hash, 1, "foo2"])),
