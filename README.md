@@ -1,10 +1,11 @@
 # eredis_cluster
+[![Travis](https://img.shields.io/travis/adrienmo/eredis_cluster.svg?branch=master&style=flat-square)](https://travis-ci.org/adrienmo/eredis_cluster)
+[![Hex.pm](https://img.shields.io/hexpm/v/eredis_cluster.svg?style=flat-square)](https://hex.pm/packages/eredis_cluster)
 
 ## Description
 
 eredis_cluster is a wrapper for eredis to support cluster mode of redis 3.0.0+
 This project is under development.
-Travis CI build status: [![Build Status](https://travis-ci.org/adrienmo/eredis_cluster.svg?branch=master)](https://travis-ci.org/adrienmo/eredis_cluster)
 
 ## TODO
 
