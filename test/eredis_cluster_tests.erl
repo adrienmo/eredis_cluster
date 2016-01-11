@@ -65,6 +65,7 @@ basic_test_() ->
                 %Wait for the script to be propagated on the cluster
                 :timer.sleep(2000),
                 erlang:display({hash,Hash}),
+                erlang:display(eredis_cluster:q(["evalsha", Hash, 1, "load"])),
                 erlang:display(eredis_cluster:q(["evalsha", Hash, 1, "foo2"])),
                 ?assertEqual({ok, <<"bar">>}, eredis_cluster:q(["GET", "foo2"]))
             end
