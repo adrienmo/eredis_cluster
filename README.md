@@ -41,7 +41,7 @@ retrieve them through the command `CLUSTER SLOTS` at runtime.
 
 ## Usage
 
-```
+```erlang
 %% Start the application
 eredis_cluster:start().
 
