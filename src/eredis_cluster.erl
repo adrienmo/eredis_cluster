@@ -7,12 +7,12 @@
 
 % API.
 -export([start/0, stop/0, connect/1]). % Application Management.
--export([q/1, qp/1, transaction/1]). % Generic redis call
+-export([q/1, qp/1, transaction/1, transaction/2]). % Generic redis call
 -export([flushdb/0]). % Specific redis command implementation
 
 -include("eredis_cluster.hrl").
 
--spec start(StarType::application:start_type(), StartArgs::term()) ->
+-spec start(StartType::application:start_type(), StartArgs::term()) ->
     {ok, pid()}.
 start(_Type, _Args) ->
     eredis_cluster_sup:start_link().
@@ -33,58 +33,80 @@ stop() ->
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
 
+-spec qp(redis_pipeline_command()) -> redis_pipeline_result().
+qp(Commands) -> q(Commands).
+
 -spec q(redis_command()) -> redis_result().
 q(Command) ->
-    q(Command,0).
-q(_,?REDIS_CLUSTER_REQUEST_TTL) ->
-    {error,no_connection};
-q(Command,Counter) ->
+    q(Command, 0).
 
+q(_, ?REDIS_CLUSTER_REQUEST_TTL) ->
+    {error, no_connection};
+q(Command, Counter) ->
     %% Throttle retries
-    if
-        Counter > 1 ->
-            timer:sleep(?REDIS_RETRY_DELAY);
-        true ->
-            ok
-    end,
+    throttle_retries(Counter),
 
-    %% Extract key from request
-    case get_key_from_command(Command) of
-        undefined ->
+    case get_pool_from_command(Command) of
+        {error, invalid_cluster_command, _} ->
             {error, invalid_cluster_command};
-        Key ->
-            Slot = get_key_slot(Key),
 
-            case eredis_cluster_monitor:get_pool_by_slot(Slot) of
-                {Version, undefined} ->
+        {error, pool_undefined, Version} ->
+            eredis_cluster_monitor:refresh_mapping(Version),
+            q(Command, Counter+1);
+
+        {ok, Pool, Version} ->
+            case eredis_cluster_pool:query(Pool, Command) of
+                {error, no_connection} ->
                     eredis_cluster_monitor:refresh_mapping(Version),
                     q(Command, Counter+1);
 
-                {Version, Pool} ->
-                    case eredis_cluster_pool:query(Pool, Command) of
-                        {error, no_connection} ->
-                            eredis_cluster_monitor:refresh_mapping(Version),
-                            q(Command, Counter+1);
+                {error, <<"MOVED ", _RedirectionInfo/binary>>} ->
+                    eredis_cluster_monitor:refresh_mapping(Version),
+                    q(Command, Counter+1);
 
-                        {error, <<"MOVED ", _RedirectionInfo/binary>>} ->
-                            eredis_cluster_monitor:refresh_mapping(Version),
-                            q(Command, Counter+1);
-
-                        Payload ->
-                            Payload
-                    end
+                Payload ->
+                    Payload
             end
     end.
 
--spec qp(redis_pipeline_command()) -> redis_pipeline_result().
-qp(Commands) ->
-    q(Commands).
+-spec throttle_retries(integer()) -> ok.
+throttle_retries(0) -> ok;
+throttle_retries(_) -> timer:sleep(?REDIS_RETRY_DELAY).
+
+-spec get_pool_from_command(redis_command()) ->
+    {ok | error,  Pool::pid() | invalid_cluster_command | pool_undefined,
+        Version::integer()}.
+get_pool_from_command(Command) ->
+    case get_key_from_command(Command) of
+        undefined ->
+            {error, invalid_cluster_command, 0};
+
+        Key ->
+            Slot = get_key_slot(Key),
+            case eredis_cluster_monitor:get_pool_by_slot(Slot) of
+                {Version, undefined} ->
+                    {error, pool_undefined, Version};
+
+                {Version, Pool} ->
+                    {ok, Pool, Version}
+            end
+    end.
 
 -spec transaction(redis_pipeline_command()) -> redis_transaction_result().
 transaction(Commands) ->
-    Transaction = [["multi"]|Commands] ++ [["exec"]],
-    Result = qp(Transaction),
+    Transaction = [["multi"]| Commands] ++ [["exec"]],
+    Result = q(Transaction),
     lists:last(Result).
+
+-spec transaction(fun((Worker::pid()) -> redis_result()), anystring()) ->
+    redis_result().
+transaction(Transaction, PoolKey) ->
+    case get_pool_from_command(["GET", PoolKey]) of
+        {error, pool_undefined, _} ->
+            {error, no_connection};
+        {ok, Pool, _} ->
+            eredis_cluster_pool:transaction(Pool, Transaction)
+    end.
 
 -spec query_all(redis_command()) -> ok | {error, Reason::bitstring()}.
 query_all(Command) ->
@@ -138,6 +160,8 @@ get_key_slot(Key) ->
 %%
 %% If the pipeline query starts with multi (transaction), we will look at the
 %% second term of the second command
+%%
+%% For eval and evalsha command we will look at the fourth term.
 %%
 %% For commands that don't make sense in the context of cluster
 %% return value will be undefined.

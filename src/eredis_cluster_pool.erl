@@ -5,6 +5,7 @@
 -export([create/2]).
 -export([stop/1]).
 -export([query/2]).
+-export([transaction/2]).
 
 %% Supervisor
 -export([start_link/0]).
@@ -41,8 +42,18 @@ create(Host, Port) ->
 query(PoolName, Commands) ->
     try
         poolboy:transaction(PoolName, fun(Worker) ->
-            eredis_cluster_pool_worker:query(Worker,Commands)
+            eredis_cluster_pool_worker:query(Worker, Commands)
         end)
+    catch
+        exit:_ ->
+            {error, no_connection}
+    end.
+
+-spec transaction(atom(), fun((Worker::pid()) -> redis_result())) ->
+    redis_result().
+transaction(PoolName, Transaction) ->
+    try
+        poolboy:transaction(PoolName, Transaction)
     catch
         exit:_ ->
             {error, no_connection}
@@ -58,8 +69,11 @@ stop(PoolName) ->
 get_name(Host, Port) ->
     list_to_atom(Host ++ "#" ++ integer_to_list(Port)).
 
+-spec start_link() -> {ok, pid()}.
 start_link() ->
 	supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
+-spec init([])
+	-> {ok, {{supervisor:strategy(), 1, 5}, [supervisor:child_spec()]}}.
 init([]) ->
 	{ok, {{one_for_one, 1, 5}, []}}.

@@ -40,7 +40,7 @@ query(Worker, Commands) ->
     gen_server:call(Worker, {'query', Commands}).
 
 handle_call({'query', _}, _From, #state{conn = undefined} = State) ->
-    {reply, {error,no_connection}, State};
+    {reply, {error, no_connection}, State};
 handle_call({'query', [[X|Y]|Z]}, _From, #state{conn = Conn} = State)
     when is_list(X); is_binary(X) ->
     {reply, eredis:qp(Conn, [[X|Y]|Z]), State};
