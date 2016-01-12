@@ -7,7 +7,7 @@
 
 % API.
 -export([start/0, stop/0, connect/1]). % Application Management.
--export([q/1, qp/1, transaction/1, transaction/2]). % Generic redis call
+-export([q/1, qp/1, qw/2, transaction/1, transaction/2]). % Generic redis call
 -export([flushdb/0]). % Specific redis command implementation
 
 -include("eredis_cluster.hrl").
@@ -29,13 +29,27 @@ start() ->
 stop() ->
     application:stop(?MODULE).
 
+%% =============================================================================
+%% @doc Connect to a set of init node, useful if the cluster configuration is
+%% not known at startup
+%% @end
+%% =============================================================================
 -spec connect(InitServers::term()) -> Result::term().
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
 
+%% =============================================================================
+%% @doc Wrapper function for command using pipelined commands
+%% @end
+%% =============================================================================
 -spec qp(redis_pipeline_command()) -> redis_pipeline_result().
 qp(Commands) -> q(Commands).
 
+%% =============================================================================
+%% @doc This function execute simple or pipelined command on a single redis node
+%% the node will be automatically found according to the key used in the command
+%% @end
+%% =============================================================================
 -spec q(redis_command()) -> redis_result().
 q(Command) ->
     q(Command, 0).
@@ -73,8 +87,13 @@ q(Command, Counter) ->
 throttle_retries(0) -> ok;
 throttle_retries(_) -> timer:sleep(?REDIS_RETRY_DELAY).
 
+%% =============================================================================
+%% @doc This function returns the pool name containing one of the key contained
+%% in the redis command
+%% @end
+%% =============================================================================
 -spec get_pool_from_command(redis_command()) ->
-    {ok | error,  Pool::pid() | invalid_cluster_command | pool_undefined,
+    {ok | error,  Pool::atom() | invalid_cluster_command | pool_undefined,
         Version::integer()}.
 get_pool_from_command(Command) ->
     case get_key_from_command(Command) of
@@ -92,12 +111,22 @@ get_pool_from_command(Command) ->
             end
     end.
 
+%% =============================================================================
+%% @doc Wrapper function to execute a pipeline command as a transaction Command
+%% (it will add MULTI and EXEC command)
+%% @end
+%% =============================================================================
 -spec transaction(redis_pipeline_command()) -> redis_transaction_result().
 transaction(Commands) ->
     Transaction = [["multi"]| Commands] ++ [["exec"]],
     Result = q(Transaction),
     lists:last(Result).
 
+%% =============================================================================
+%% @doc Execute a function on a pool worker. This function should be use when
+%% transaction method such as WATCH or DISCARD must be used.
+%% @end
+%% =============================================================================
 -spec transaction(fun((Worker::pid()) -> redis_result()), anystring()) ->
     redis_result().
 transaction(Transaction, PoolKey) ->
@@ -108,14 +137,31 @@ transaction(Transaction, PoolKey) ->
             eredis_cluster_pool:transaction(Pool, Transaction)
     end.
 
--spec query_all(redis_command()) -> ok | {error, Reason::bitstring()}.
-query_all(Command) ->
+%% =============================================================================
+%% @doc Perform a given query on all node of a redis cluster
+%% @end
+%% =============================================================================
+-spec qa(redis_command()) -> ok | {error, Reason::bitstring()}.
+qa(Command) ->
     Pools = eredis_cluster_monitor:get_all_pools(),
     [eredis_cluster_pool:query(Pool, Command) || Pool <- Pools].
 
+%% =============================================================================
+%% @doc Wrapper function to be used for direct call to a pool worker in the
+%% function passed to the transaction/2 method
+%% @end
+%% =============================================================================
+-spec qw(Worker::pid(), redis_command()) -> redis_result().
+qw(Worker, Command) ->
+    eredis_cluster_pool_worker:query(Worker, Command).
+
+%% =============================================================================
+%% @doc Perform flushdb command on each node of the redis cluster
+%% @end
+%% =============================================================================
 -spec flushdb() -> ok | {error, Reason::bitstring()}.
 flushdb() ->
-    Result = query_all(["FLUSHDB"]),
+    Result = qa(["FLUSHDB"]),
     case proplists:lookup(error,Result) of
         none ->
             ok;
@@ -127,7 +173,6 @@ flushdb() ->
 %% @doc Return the hash slot from the key
 %% @end
 %% =============================================================================
-
 -spec get_key_slot(Key::anystring()) -> Slot::integer().
 get_key_slot(Key) when is_bitstring(Key) ->
     get_key_slot(bitstring_to_list(Key));
@@ -167,7 +212,6 @@ get_key_slot(Key) ->
 %% return value will be undefined.
 %% @end
 %% =============================================================================
-
 -spec get_key_from_command(redis_command()) -> string() | undefined.
 get_key_from_command([[X|Y]|Z]) when is_bitstring(X) ->
     get_key_from_command([[bitstring_to_list(X)|Y]|Z]);
@@ -202,6 +246,11 @@ get_key_from_command([Term1,Term2|Rest]) ->
 get_key_from_command(_) ->
     undefined.
 
+%% =============================================================================
+%% @doc Get key for command where the key is in th 4th position (eval and
+%% evalsha commands)
+%% @end
+%% =============================================================================
 -spec get_key_from_rest([anystring()]) -> string() | undefined.
 get_key_from_rest([_,KeyName|_]) when is_bitstring(KeyName) ->
     bitstring_to_list(KeyName);

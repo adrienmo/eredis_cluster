@@ -52,11 +52,11 @@ basic_test_() ->
             fun () ->
                 eredis_cluster:q(["SET", "efg", "12"]),
                 Function = fun(Worker) ->
-                    eredis_cluster_pool_worker:query(Worker, ["WATCH", "efg"]),
-                    {ok, Result} = eredis_cluster_pool_worker:query(Worker, ["GET", "efg"]),
+                    eredis_cluster:qw(Worker, ["WATCH", "efg"]),
+                    {ok, Result} = eredis_cluster:qw(Worker, ["GET", "efg"]),
                     NewValue = binary_to_integer(Result) + 1,
                     timer:sleep(100),
-                    lists:last(eredis_cluster_pool_worker:query(Worker, [["MULTI"],["SET", "efg", NewValue],["EXEC"]]))
+                    lists:last(eredis_cluster:qw(Worker, [["MULTI"],["SET", "efg", NewValue],["EXEC"]]))
                 end,
                 PResult = rpc:pmap({eredis_cluster, transaction},["efg"],lists:duplicate(5, Function)),
                 Nfailed = lists:foldr(fun({_, Result}, Acc) -> if Result == undefined -> Acc + 1; true -> Acc end end, 0, PResult),
