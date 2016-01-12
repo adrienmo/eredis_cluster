@@ -105,6 +105,14 @@ basic_test_() ->
                 ?assertEqual({ok, undefined}, eredis_cluster:q(["GET", "zyxw"])),
                 ?assertEqual({ok, undefined}, eredis_cluster:q(["GET", "zyxwv"]))
             end
+            },
+
+            { "bitstring support",
+            fun () ->
+                eredis_cluster:q(["set", "hij", 2]),
+                Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
+                eredis_cluster:update_key("hij", Fun)
+            end
             }
 
       ]

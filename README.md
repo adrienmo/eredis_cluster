@@ -43,7 +43,7 @@ retrieve them through the command `CLUSTER SLOTS` at runtime.
 	%% Start the application
 	eredis_cluster:start().
 
-	%% Use like eredis
+	%% Simple command
 	eredis_cluster:q(["GET","abc"]).
 
 	%% Pipeline
@@ -51,3 +51,23 @@ retrieve them through the command `CLUSTER SLOTS` at runtime.
 
 	%% Transaction
 	eredis_cluster:transaction([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
+
+    %% Transaction Function
+    Function = fun(Worker) ->
+        eredis_cluster:qw(Worker,["WATCH", "abc"]),
+        {ok, Var} = eredis_cluster:qw(Worker,["GET", "abc"]),
+
+        %% Do something with Var %%
+        Var2 = binary_to_integer(Var) + 1,
+
+        {ok, Result} eredis_cluster:qw(Worker,[["MULTI"],["SET","abc",Var2],["EXEC"]]),
+        lists:last(Result)
+    end,
+	eredis_cluster:transaction(Function,"abc").
+
+    %% Atomic Key update
+    Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
+    eredis_cluster:update_key("abc", Fun).
+
+    %% Flush DB
+	eredis_cluster:flushdb().

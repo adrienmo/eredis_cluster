@@ -9,6 +9,7 @@
 -export([start/0, stop/0, connect/1]). % Application Management.
 -export([q/1, qp/1, qw/2, transaction/1, transaction/2]). % Generic redis call
 -export([flushdb/0]). % Specific redis command implementation
+-export([update_key/2]). % Helper functions
 
 -include("eredis_cluster.hrl").
 
@@ -124,11 +125,13 @@ transaction(Commands) ->
 
 %% =============================================================================
 %% @doc Execute a function on a pool worker. This function should be use when
-%% transaction method such as WATCH or DISCARD must be used.
+%% transaction method such as WATCH or DISCARD must be used. The pool used to
+%% execute the transaction is specified by giving a key that this pool is
+%% containing.
 %% @end
 %% =============================================================================
 -spec transaction(fun((Worker::pid()) -> redis_result()), anystring()) ->
-    redis_result().
+    any().
 transaction(Transaction, PoolKey) ->
     case get_pool_from_command(["GET", PoolKey]) of
         {error, pool_undefined, _} ->
@@ -136,6 +139,25 @@ transaction(Transaction, PoolKey) ->
         {ok, Pool, _} ->
             eredis_cluster_pool:transaction(Pool, Transaction)
     end.
+
+%% =============================================================================
+%% @doc Update a key value in redis using a function passed as an argument.
+%% The update is made in a transaction.
+%% @end
+%% =============================================================================
+-spec update_key(Key::anystring(), UpdateFunction::fun((any()) -> any())) ->
+    redis_transaction_result().
+update_key(Key, UpdateFunction) ->
+    Transaction = fun(Worker) ->
+        eredis_cluster:qw(Worker,["WATCH", Key]),
+        {ok, Var} = eredis_cluster:qw(Worker,["GET", Key]),
+        Result = eredis_cluster:qw(Worker,[
+            ["MULTI"],
+            ["SET", Key, UpdateFunction(Var)],
+            ["EXEC"]]),
+        lists:last(Result)
+    end,
+	eredis_cluster:transaction(Transaction, Key).
 
 %% =============================================================================
 %% @doc Perform a given query on all node of a redis cluster
