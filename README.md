@@ -22,7 +22,8 @@ The directory contains a Makefile and rebar3
 
 ## Configuration
 
-To configure the redis cluster, you can use an application variable (probably in your app.config):
+To configure the redis cluster, you can use an application variable (probably in
+your app.config):
 
 	{eredis_cluster,
 	    [
@@ -40,34 +41,36 @@ retrieve them through the command `CLUSTER SLOTS` at runtime.
 
 ## Usage
 
-	%% Start the application
-	eredis_cluster:start().
+```
+%% Start the application
+eredis_cluster:start().
 
-	%% Simple command
-	eredis_cluster:q(["GET","abc"]).
+%% Simple command
+eredis_cluster:q(["GET","abc"]).
 
-	%% Pipeline
-	eredis_cluster:qp([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
+%% Pipeline
+eredis_cluster:qp([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
 
-	%% Transaction
-	eredis_cluster:transaction([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
+%% Transaction
+eredis_cluster:transaction([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", "a", "c"]]).
 
-    %% Transaction Function
-    Function = fun(Worker) ->
-        eredis_cluster:qw(Worker,["WATCH", "abc"]),
-        {ok, Var} = eredis_cluster:qw(Worker,["GET", "abc"]),
+%% Transaction Function
+Function = fun(Worker) ->
+    eredis_cluster:qw(Worker,["WATCH", "abc"]),
+    {ok, Var} = eredis_cluster:qw(Worker,["GET", "abc"]),
 
-        %% Do something with Var %%
-        Var2 = binary_to_integer(Var) + 1,
+    %% Do something with Var %%
+    Var2 = binary_to_integer(Var) + 1,
 
-        {ok, Result} eredis_cluster:qw(Worker,[["MULTI"],["SET","abc",Var2],["EXEC"]]),
-        lists:last(Result)
-    end,
-	eredis_cluster:transaction(Function,"abc").
+    {ok, Result} eredis_cluster:qw(Worker,[["MULTI"],["SET","abc",Var2],["EXEC"]]),
+    lists:last(Result)
+end,
+eredis_cluster:transaction(Function,"abc").
 
-    %% Atomic Key update
-    Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
-    eredis_cluster:update_key("abc", Fun).
+%% Atomic Key update
+Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
+eredis_cluster:update_key("abc", Fun).
 
-    %% Flush DB
-	eredis_cluster:flushdb().
+%% Flush DB
+eredis_cluster:flushdb().
+```
