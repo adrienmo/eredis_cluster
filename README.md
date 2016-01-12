@@ -56,16 +56,16 @@ eredis_cluster:transaction([["LPUSH", "a", "a"], ["LPUSH", "a", "b"], ["LPUSH", 
 
 %% Transaction Function
 Function = fun(Worker) ->
-    eredis_cluster:qw(Worker,["WATCH", "abc"]),
-    {ok, Var} = eredis_cluster:qw(Worker,["GET", "abc"]),
+    eredis_cluster:qw(Worker, ["WATCH", "abc"]),
+    {ok, Var} = eredis_cluster:qw(Worker, ["GET", "abc"]),
 
     %% Do something with Var %%
     Var2 = binary_to_integer(Var) + 1,
 
-    {ok, Result} eredis_cluster:qw(Worker,[["MULTI"],["SET","abc",Var2],["EXEC"]]),
+    {ok, Result} eredis_cluster:qw(Worker,[["MULTI"], ["SET", "abc", Var2], ["EXEC"]]),
     lists:last(Result)
 end,
-eredis_cluster:transaction(Function,"abc").
+eredis_cluster:transaction(Function, "abc").
 
 %% Atomic Key update
 Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
