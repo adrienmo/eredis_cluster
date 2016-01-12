@@ -6,7 +6,7 @@
 -define(Clearnup, fun(_) -> eredis_cluster:stop() end).
 
 basic_test_() ->
-    {inparallel,
+    {inorder,
         {setup, ?Setup, ?Clearnup,
         [
             { "get and set",
@@ -76,6 +76,18 @@ basic_test_() ->
             fun () ->
                 eredis_cluster:q([<<"set">>, <<"bitstring">>,<<"support">>]),
                 ?assertEqual({ok, <<"support">>}, eredis_cluster:q([<<"GET">>, <<"bitstring">>]))
+            end
+            },
+
+            { "flushdb",
+            fun () ->
+                eredis_cluster:q(["set", "zyx", "test"]),
+                eredis_cluster:q(["set", "zyxw", "test"]),
+                eredis_cluster:q(["set", "zyxwv", "test"]),
+                eredis_cluster:flushdb(),
+                ?assertEqual({ok, undefined}, eredis_cluster:q(["GET", "zyx"])),
+                ?assertEqual({ok, undefined}, eredis_cluster:q(["GET", "zyxw"])),
+                ?assertEqual({ok, undefined}, eredis_cluster:q(["GET", "zyxwv"]))
             end
             }
 

@@ -1,25 +1,18 @@
 -module(eredis_cluster_sup).
 -behaviour(supervisor).
 
-%% ====================================================================
-%% API functions
-%% ====================================================================
-
+%% Supervisor.
 -export([start_link/0]).
 -export([init/1]).
-
-%% ====================================================================
-%% Internal functions
-%% ====================================================================
 
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-    Procs = [{eredis_cluster_pools,
-                {eredis_cluster_pools_sup, start_link, []},
+    Procs = [{eredis_cluster_pool,
+                {eredis_cluster_pool, start_link, []},
                 permanent, 5000, supervisor, [dynamic]},
-            {eredis_cluster,
+            {eredis_cluster_monitor,
                 {eredis_cluster_monitor, start_link, []},
                 permanent, 5000, worker, [dynamic]}
             ],

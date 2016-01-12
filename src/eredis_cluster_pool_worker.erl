@@ -1,10 +1,18 @@
--module(eredis_cluster_worker).
+-module(eredis_cluster_pool_worker).
 -behaviour(gen_server).
 -behaviour(poolboy_worker).
 
+%% API.
 -export([start_link/1]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-        code_change/3]).
+-export([query/2]).
+
+%% gen_server.
+-export([init/1]).
+-export([handle_call/3]).
+-export([handle_cast/2]).
+-export([handle_info/2]).
+-export([terminate/2]).
+-export([code_change/3]).
 
 -record(state, {conn}).
 
@@ -28,14 +36,16 @@ init(Args) ->
 
     {ok, #state{conn=Conn}}.
 
-handle_call({q, _}, _From, #state{conn=undefined}=State) ->
+query(Worker, Commands) ->
+    gen_server:call(Worker, {'query', Commands}).
+
+handle_call({'query', _}, _From, #state{conn = undefined} = State) ->
     {reply, {error,no_connection}, State};
-handle_call({q, Params}, _From, #state{conn=Conn}=State) ->
-    {reply, eredis:q(Conn,Params), State};
-handle_call({qp, _}, _From, #state{conn=undefined}=State) ->
-    {reply, {error,no_connection}, State};
-handle_call({qp, Params}, _From, #state{conn=Conn}=State) ->
-    {reply, eredis:qp(Conn,Params), State};
+handle_call({'query', [[X|Y]|Z]}, _From, #state{conn = Conn} = State)
+    when is_list(X); is_binary(X) ->
+    {reply, eredis:qp(Conn, [[X|Y]|Z]), State};
+handle_call({'query', Command}, _From, #state{conn = Conn} = State) ->
+    {reply, eredis:q(Conn, Command), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 

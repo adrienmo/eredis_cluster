@@ -1,29 +1,16 @@
 -module(eredis_cluster).
 -behaviour(application).
 
--define(REDIS_CLUSTER_REQUEST_TTL,16).
--define(REDIS_RETRY_DELAY,100).
+% Application.
+-export([start/2]).
+-export([stop/1]).
 
--export([start/0, start/2]).
--export([stop/0, stop/1]).
--export([connect/1]).
--export([q/1, qp/1, transaction/1]).
+% API.
+-export([start/0, stop/0, connect/1]). % Application Management.
+-export([q/1, qp/1, transaction/1]). % Generic redis call
+-export([flushdb/0]). % Specific redis command implementation
 
--type anystring() :: string() | bitstring().
-
--type redis_simple_command() :: [anystring()].
--type redis_pipeline_command() :: [redis_simple_command()].
--type redis_command() :: redis_simple_command() | redis_pipeline_command().
-
--type redis_error_result() :: Reason::bitstring() | no_connection
-    | invalid_cluster_command.
--type redis_success_result() :: Result::bitstring().
--type redis_simple_result() :: {ok, redis_success_result()}
-    | {error, redis_error_result()}.
--type redis_pipeline_result() :: [redis_simple_result()].
--type redis_transaction_result() :: {ok, [redis_success_result()]}
-    | {error, redis_error_result()}.
--type redis_result() :: redis_simple_result() | redis_pipeline_result().
+-include("eredis_cluster.hrl").
 
 -spec start(StarType::application:start_type(), StartArgs::term()) ->
     {ok, pid()}.
@@ -74,7 +61,7 @@ q(Command,Counter) ->
                     q(Command, Counter+1);
 
                 {Version, Pool} ->
-                    case query_eredis_pool(Pool, Command) of
+                    case eredis_cluster_pool:query(Pool, Command) of
                         {error, no_connection} ->
                             eredis_cluster_monitor:refresh_mapping(Version),
                             q(Command, Counter+1);
@@ -99,19 +86,19 @@ transaction(Commands) ->
     Result = qp(Transaction),
     lists:last(Result).
 
--spec query_eredis_pool(atom(), redis_command()) -> redis_result().
-query_eredis_pool(PoolName, [[X|Y]|Z]) when is_list(X); is_binary(X) ->
-    query_eredis_pool(PoolName, [[X|Y]|Z], qp);
-query_eredis_pool(PoolName, Command) ->
-    query_eredis_pool(PoolName, Command, q).
-query_eredis_pool(PoolName, Params, Type) ->
-    try
-        poolboy:transaction(PoolName, fun(Worker) ->
-            gen_server:call(Worker, {Type, Params})
-        end)
-    catch
-        exit:_ ->
-            {error,no_connection}
+-spec query_all(redis_command()) -> ok | {error, Reason::bitstring()}.
+query_all(Command) ->
+    Pools = eredis_cluster_monitor:get_all_pools(),
+    [eredis_cluster_pool:query(Pool, Command) || Pool <- Pools].
+
+-spec flushdb() -> ok | {error, Reason::bitstring()}.
+flushdb() ->
+    Result = query_all(["FLUSHDB"]),
+    case proplists:lookup(error,Result) of
+        none ->
+            ok;
+        Error ->
+            Error
     end.
 
 %% =============================================================================

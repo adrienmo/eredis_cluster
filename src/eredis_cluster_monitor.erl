@@ -1,33 +1,12 @@
 -module(eredis_cluster_monitor).
 -behaviour(gen_server).
 
--define(REDIS_CLUSTER_HASH_SLOTS, 16384).
-
--record(node, {
-    address :: string(),
-    port :: integer(),
-    pool :: atom()
-}).
-
--record(slots_map, {
-    start_slot :: integer(),
-    end_slot :: integer(),
-    index :: integer(),
-    node :: #node{}
-}).
-
--record(state, {
-    init_nodes :: [#node{}],
-    slots :: tuple(), %% whose elements are integer indexes into slots_maps
-    slots_maps :: tuple(), %% whose elements are #slots_map{}
-    version :: integer()
-}).
-
 %% API.
 -export([start_link/0]).
 -export([connect/1]).
 -export([refresh_mapping/1]).
 -export([get_pool_by_slot/1]).
+-export([get_all_pools/0]).
 
 %% gen_server.
 -export([init/1]).
@@ -37,6 +16,14 @@
 -export([terminate/2]).
 -export([code_change/3]).
 
+%% Type definition.
+-include("eredis_cluster.hrl").
+-record(state, {
+    init_nodes :: [#node{}],
+    slots :: tuple(), %% whose elements are integer indexes into slots_maps
+    slots_maps :: tuple(), %% whose elements are #slots_map{}
+    version :: integer()
+}).
 
 %% API.
 -spec start_link() -> {ok, pid()}.
@@ -55,10 +42,22 @@ refresh_mapping(Version) ->
 %% @end
 %% =============================================================================
 
+-spec get_state() -> #state{}.
+get_state() ->
+    [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
+    State.
+
+-spec get_all_pools() -> [pid()].
+get_all_pools() ->
+    State = get_state(),
+    SlotsMapList = tuple_to_list(State#state.slots_maps),
+    [SlotsMap#slots_map.node#node.pool || SlotsMap <- SlotsMapList,
+        SlotsMap#slots_map.node =/= undefined].
+
 -spec get_pool_by_slot(Slot::integer()) ->
     {Version::integer(), PoolName::atom() | undefined}.
 get_pool_by_slot(Slot) ->
-    [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
+    State = get_state(),
     Index = element(Slot+1,State#state.slots),
     Cluster = element(Index,State#state.slots_maps),
     if
@@ -140,7 +139,7 @@ close_connection(SlotsMap) ->
     Node = SlotsMap#slots_map.node,
     if
         Node =/= undefined ->
-            try eredis_cluster_pools_sup:stop_eredis_pool(Node#node.pool) of
+            try eredis_cluster_pool:stop(Node#node.pool) of
                 _ ->
                     ok
             catch
@@ -153,7 +152,7 @@ close_connection(SlotsMap) ->
 
 -spec connect_node(#node{}) -> #node{} | undefined.
 connect_node(Node) ->
-    case eredis_cluster_pools_sup:create_eredis_pool(Node#node.address, Node#node.port) of
+    case eredis_cluster_pool:create(Node#node.address, Node#node.port) of
         {ok, Pool} ->
             Node#node{pool=Pool};
         _ ->
