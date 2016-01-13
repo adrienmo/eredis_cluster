@@ -107,11 +107,12 @@ basic_test_() ->
             end
             },
 
-            { "bitstring support",
+            { "atomic get set",
             fun () ->
                 eredis_cluster:q(["set", "hij", 2]),
-                Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
-                eredis_cluster:update_key("hij", Fun)
+                Incr = fun(Var) -> binary_to_integer(Var) + 1 end,
+                rpc:pmap({eredis_cluster, update_key}, [Incr], lists:duplicate(5, "hij")),
+                ?assertEqual({ok, <<"7">>}, eredis_cluster:q(["get", "hij"]))
             end
             }
 

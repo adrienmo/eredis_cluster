@@ -10,6 +10,7 @@
 -export([q/1, qp/1, qw/2, transaction/1, transaction/2]). % Generic redis call
 -export([flushdb/0]). % Specific redis command implementation
 -export([update_key/2]). % Helper functions
+-export([optimistic_lock_transaction/3]).
 
 -include("eredis_cluster.hrl").
 
@@ -40,6 +41,42 @@ connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
 
 %% =============================================================================
+%% @doc Wrapper function to execute a pipeline command as a transaction Command
+%% (it will add MULTI and EXEC command)
+%% @end
+%% =============================================================================
+-spec transaction(redis_pipeline_command()) -> redis_transaction_result().
+transaction(Commands) ->
+    Result = q([["multi"]| Commands] ++ [["exec"]]),
+    lists:last(Result).
+
+%% =============================================================================
+%% @doc Execute a function on a pool worker. This function should be use when
+%% transaction method such as WATCH or DISCARD must be used. The pool used to
+%% execute the transaction is specified by giving a key that this pool is
+%% containing.
+%% @end
+%% =============================================================================
+-spec transaction(fun((Worker::pid()) -> redis_result()), anystring()) -> any().
+transaction(Transaction, PoolKey) ->
+    Slot = get_key_slot(PoolKey),
+    query(Transaction, Slot, 0).
+
+transaction_retry(Transaction, PoolKey) ->
+    Slot = get_key_slot(PoolKey),
+    transaction_retry(Transaction, Slot, ?OPTIMISTIC_LOCK_TRANSACTION_TTL).
+
+transaction_retry(_, _, 0) ->
+    {error, undefined};
+transaction_retry(Transaction, Slot, Counter) ->
+    case query(Transaction, Slot, 0) of
+        {ok, undefined} ->
+            transaction_retry(Transaction, Slot, Counter - 1);
+        Payload ->
+            Payload
+    end.
+
+%% =============================================================================
 %% @doc Wrapper function for command using pipelined commands
 %% @end
 %% =============================================================================
@@ -53,85 +90,43 @@ qp(Commands) -> q(Commands).
 %% =============================================================================
 -spec q(redis_command()) -> redis_result().
 q(Command) ->
-    q(Command, 0).
+    query(Command).
 
-q(_, ?REDIS_CLUSTER_REQUEST_TTL) ->
+query(Command) ->
+    PoolKey = get_key_from_command(Command),
+    query(Command, PoolKey).
+
+query(_, undefined) ->
+    {error, invalid_cluster_command};
+query(Command, PoolKey) ->
+    Slot = get_key_slot(PoolKey),
+    Transaction = fun(Worker) -> qw(Worker, Command) end,
+    query(Transaction, Slot, 0).
+
+query(_, _, ?REDIS_CLUSTER_REQUEST_TTL) ->
     {error, no_connection};
-q(Command, Counter) ->
+query(Transaction, Slot, Counter) ->
     %% Throttle retries
     throttle_retries(Counter),
 
-    case get_pool_from_command(Command) of
-        {error, invalid_cluster_command} ->
-            {error, invalid_cluster_command};
+    {Pool, Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
 
-        {ok, {Pool, Version}} ->
-            case eredis_cluster_pool:query(Pool, Command) of
-                {error, no_connection} ->
-                    eredis_cluster_monitor:refresh_mapping(Version),
-                    q(Command, Counter+1);
+    case eredis_cluster_pool:transaction(Pool, Transaction) of
+        {error, no_connection} ->
+            eredis_cluster_monitor:refresh_mapping(Version),
+            query(Transaction, Slot, Counter+1);
 
-                {error, <<"MOVED ", _RedirectionInfo/binary>>} ->
-                    eredis_cluster_monitor:refresh_mapping(Version),
-                    q(Command, Counter+1);
+        {error, <<"MOVED ", _/binary>>} ->
+            eredis_cluster_monitor:refresh_mapping(Version),
+            query(Transaction, Slot,  Counter+1);
 
-                Payload ->
-                    Payload
-            end
+        Payload ->
+            Payload
     end.
 
 -spec throttle_retries(integer()) -> ok.
 throttle_retries(0) -> ok;
 throttle_retries(_) -> timer:sleep(?REDIS_RETRY_DELAY).
-
-%% =============================================================================
-%% @doc This function returns the pool name containing one of the key contained
-%% in the redis command
-%% @end
-%% =============================================================================
--spec get_pool_from_command(redis_command()) ->
-    {ok, {Pool::atom() | undefined, Version::integer()}}
-        | {error, invalid_cluster_command}.
-get_pool_from_command(Command) ->
-    case get_key_from_command(Command) of
-        undefined ->
-            {error, invalid_cluster_command};
-        Key ->
-            {ok, get_pool_from_key(Key)}
-    end.
-
-%% =============================================================================
-%% @doc This function returns the pool name containing the specified key
-%% @end
-%% =============================================================================
--spec get_pool_from_key(string()) ->
-    {Pool::atom() | undefined, Version::integer()}.
-get_pool_from_key(Key) ->
-    Slot = get_key_slot(Key),
-    eredis_cluster_monitor:get_pool_by_slot(Slot).
-
-%% =============================================================================
-%% @doc Wrapper function to execute a pipeline command as a transaction Command
-%% (it will add MULTI and EXEC command)
-%% @end
-%% =============================================================================
--spec transaction(redis_pipeline_command()) -> redis_transaction_result().
-transaction(Commands) ->
-    Transaction = [["multi"]| Commands] ++ [["exec"]],
-    Result = q(Transaction),
-    lists:last(Result).
-
-%% =============================================================================
-%% @doc Execute a function on a pool worker. This function should be use when
-%% transaction method such as WATCH or DISCARD must be used. The pool used to
-%% execute the transaction is specified by giving a key that this pool is
-%% containing.
-%% @end
-%% =============================================================================
--spec transaction(fun((Worker::pid()) -> redis_result()), anystring()) -> any().
-transaction(Transaction, PoolKey) ->
-    {Pool, _} = get_pool_from_key(PoolKey),
-    eredis_cluster_pool:transaction(Pool, Transaction).
 
 %% =============================================================================
 %% @doc Update a key value in redis using a function passed as an argument.
@@ -141,16 +136,32 @@ transaction(Transaction, PoolKey) ->
 -spec update_key(Key::anystring(), UpdateFunction::fun((any()) -> any())) ->
     redis_transaction_result().
 update_key(Key, UpdateFunction) ->
+    UpdateFunction2 = fun(GetResult) ->
+        {ok, Var} = GetResult,
+        [["SET", Key, UpdateFunction(Var)]]
+    end,
+    optimistic_lock_transaction(Key, ["GET", Key], UpdateFunction2).
+
+%% =============================================================================
+%% @doc Optimistic lock transaction helper, based on Redis documentation :
+%% http://redis.io/topics/transactions
+%% @end
+%% =============================================================================
+-spec optimistic_lock_transaction(Key::anystring(), redis_command(),
+    UpdateFunction::fun((redis_result()) -> redis_pipeline_command())) ->
+        redis_transaction_result().
+optimistic_lock_transaction(WatchedKey, GetCommand, UpdateFunction) ->
     Transaction = fun(Worker) ->
-        eredis_cluster:qw(Worker,["WATCH", Key]),
-        {ok, Var} = eredis_cluster:qw(Worker,["GET", Key]),
-        Result = eredis_cluster:qw(Worker,[
-            ["MULTI"],
-            ["SET", Key, UpdateFunction(Var)],
-            ["EXEC"]]),
+        %% Watch given key
+        qw(Worker,["WATCH", WatchedKey]),
+        %% Get necessary information for the modifier function
+        GetResult = qw(Worker, GetCommand),
+        %% Execute the pipelined command as a redis transaction
+        SetCommand = [["MULTI"]] ++ UpdateFunction(GetResult) ++ [["EXEC"]],
+        Result = qw(Worker, SetCommand),
         lists:last(Result)
     end,
-	eredis_cluster:transaction(Transaction, Key).
+	transaction_retry(Transaction, WatchedKey).
 
 %% =============================================================================
 %% @doc Perform a given query on all node of a redis cluster
@@ -159,7 +170,8 @@ update_key(Key, UpdateFunction) ->
 -spec qa(redis_command()) -> ok | {error, Reason::bitstring()}.
 qa(Command) ->
     Pools = eredis_cluster_monitor:get_all_pools(),
-    [eredis_cluster_pool:query(Pool, Command) || Pool <- Pools].
+    Transaction = fun(Worker) -> qw(Worker, Command) end,
+    [eredis_cluster_pool:transaction(Pool, Transaction) || Pool <- Pools].
 
 %% =============================================================================
 %% @doc Wrapper function to be used for direct call to a pool worker in the

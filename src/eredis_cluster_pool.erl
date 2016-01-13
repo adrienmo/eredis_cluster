@@ -4,7 +4,6 @@
 %% API.
 -export([create/2]).
 -export([stop/1]).
--export([query/2]).
 -export([transaction/2]).
 
 %% Supervisor
@@ -36,18 +35,6 @@ create(Host, Port) ->
         	{Result, PoolName};
         _ ->
             {ok, PoolName}
-    end.
-
--spec query(PoolName::atom(), redis_command()) -> redis_result().
-query(undefined, _) -> {error, no_connection};
-query(PoolName, Commands) ->
-    try
-        poolboy:transaction(PoolName, fun(Worker) ->
-            eredis_cluster_pool_worker:query(Worker, Commands)
-        end)
-    catch
-        exit:_ ->
-            {error, no_connection}
     end.
 
 -spec transaction(PoolName::atom(), fun((Worker::pid()) -> redis_result())) ->
