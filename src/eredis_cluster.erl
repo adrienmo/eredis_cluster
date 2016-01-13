@@ -62,14 +62,10 @@ q(Command, Counter) ->
     throttle_retries(Counter),
 
     case get_pool_from_command(Command) of
-        {error, invalid_cluster_command, _} ->
+        {error, invalid_cluster_command} ->
             {error, invalid_cluster_command};
 
-        {error, pool_undefined, Version} ->
-            eredis_cluster_monitor:refresh_mapping(Version),
-            q(Command, Counter+1);
-
-        {ok, Pool, Version} ->
+        {ok, {Pool, Version}} ->
             case eredis_cluster_pool:query(Pool, Command) of
                 {error, no_connection} ->
                     eredis_cluster_monitor:refresh_mapping(Version),
@@ -94,23 +90,25 @@ throttle_retries(_) -> timer:sleep(?REDIS_RETRY_DELAY).
 %% @end
 %% =============================================================================
 -spec get_pool_from_command(redis_command()) ->
-    {ok | error,  Pool::atom() | invalid_cluster_command | pool_undefined,
-        Version::integer()}.
+    {ok, {Pool::atom() | undefined, Version::integer()}}
+        | {error, invalid_cluster_command}.
 get_pool_from_command(Command) ->
     case get_key_from_command(Command) of
         undefined ->
-            {error, invalid_cluster_command, 0};
-
+            {error, invalid_cluster_command};
         Key ->
-            Slot = get_key_slot(Key),
-            case eredis_cluster_monitor:get_pool_by_slot(Slot) of
-                {Version, undefined} ->
-                    {error, pool_undefined, Version};
-
-                {Version, Pool} ->
-                    {ok, Pool, Version}
-            end
+            {ok, get_pool_from_key(Key)}
     end.
+
+%% =============================================================================
+%% @doc This function returns the pool name containing the specified key
+%% @end
+%% =============================================================================
+-spec get_pool_from_key(string()) ->
+    {Pool::atom() | undefined, Version::integer()}.
+get_pool_from_key(Key) ->
+    Slot = get_key_slot(Key),
+    eredis_cluster_monitor:get_pool_by_slot(Slot).
 
 %% =============================================================================
 %% @doc Wrapper function to execute a pipeline command as a transaction Command
@@ -130,15 +128,10 @@ transaction(Commands) ->
 %% containing.
 %% @end
 %% =============================================================================
--spec transaction(fun((Worker::pid()) -> redis_result()), anystring()) ->
-    any().
+-spec transaction(fun((Worker::pid()) -> redis_result()), anystring()) -> any().
 transaction(Transaction, PoolKey) ->
-    case get_pool_from_command(["GET", PoolKey]) of
-        {error, pool_undefined, _} ->
-            {error, no_connection};
-        {ok, Pool, _} ->
-            eredis_cluster_pool:transaction(Pool, Transaction)
-    end.
+    {Pool, _} = get_pool_from_key(PoolKey),
+    eredis_cluster_pool:transaction(Pool, Transaction).
 
 %% =============================================================================
 %% @doc Update a key value in redis using a function passed as an argument.

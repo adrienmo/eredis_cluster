@@ -38,7 +38,8 @@ create(Host, Port) ->
             {ok, PoolName}
     end.
 
--spec query(atom(), redis_command()) -> redis_result().
+-spec query(PoolName::atom(), redis_command()) -> redis_result().
+query(undefined, _) -> {error, no_connection};
 query(PoolName, Commands) ->
     try
         poolboy:transaction(PoolName, fun(Worker) ->
@@ -49,7 +50,7 @@ query(PoolName, Commands) ->
             {error, no_connection}
     end.
 
--spec transaction(atom(), fun((Worker::pid()) -> redis_result())) ->
+-spec transaction(PoolName::atom(), fun((Worker::pid()) -> redis_result())) ->
     redis_result().
 transaction(PoolName, Transaction) ->
     try

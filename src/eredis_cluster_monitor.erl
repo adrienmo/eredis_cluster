@@ -55,16 +55,16 @@ get_all_pools() ->
         SlotsMap#slots_map.node =/= undefined].
 
 -spec get_pool_by_slot(Slot::integer()) ->
-    {Version::integer(), PoolName::atom() | undefined}.
+    {PoolName::atom() | undefined, Version::integer()}.
 get_pool_by_slot(Slot) ->
     State = get_state(),
     Index = element(Slot+1,State#state.slots),
     Cluster = element(Index,State#state.slots_maps),
     if
         Cluster#slots_map.node =/= undefined ->
-            {State#state.version,Cluster#slots_map.node#node.pool};
+            {Cluster#slots_map.node#node.pool, State#state.version};
         true ->
-            {State#state.version,undefined}
+            {undefined, State#state.version}
     end.
 
 -spec reload_slots_map(State::#state{}) -> NewState::#state{}.
