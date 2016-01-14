@@ -67,9 +67,25 @@ Function = fun(Worker) ->
 end,
 eredis_cluster:transaction(Function, "abc").
 
+%% Optimistic Locking Transaction
+Function = fun(GetResult) ->
+    {ok, Var} = GetResult,
+    Var2 = binary_to_integer(Var) + 1,
+    [["SET", Key, Var2]]
+end,
+optimistic_locking_transaction(Key, ["GET", Key], Function)
+
 %% Atomic Key update
 Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
 eredis_cluster:update_key("abc", Fun).
+
+%% Atomic Key update
+Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
+eredis_cluster:update_key("abc", Fun).
+
+%% Atomic Field update
+Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
+eredis_cluster:update_hash_field("abc", "efg", Fun).
 
 %% Flush DB
 eredis_cluster:flushdb().
