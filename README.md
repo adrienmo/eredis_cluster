@@ -71,9 +71,10 @@ eredis_cluster:transaction(Function, "abc").
 Function = fun(GetResult) ->
     {ok, Var} = GetResult,
     Var2 = binary_to_integer(Var) + 1,
-    [["SET", Key, Var2]]
+    {[["SET", Key, Var2]], Var2}
 end,
-optimistic_locking_transaction(Key, ["GET", Key], Function)
+Result = optimistic_locking_transaction(Key, ["GET", Key], Function),
+{ok, {TransactionResult, CustomVar}} = Result
 
 %% Atomic Key update
 Fun = fun(Var) -> binary_to_integer(Var) + 1 end,

@@ -111,17 +111,20 @@ basic_test_() ->
             fun () ->
                 eredis_cluster:q(["set", "hij", 2]),
                 Incr = fun(Var) -> binary_to_integer(Var) + 1 end,
-                rpc:pmap({eredis_cluster, update_key}, [Incr], lists:duplicate(5, "hij")),
+                Result = rpc:pmap({eredis_cluster, update_key}, [Incr], lists:duplicate(5, "hij")),
+                IntermediateValues = proplists:get_all_values(ok, Result),
+                ?assertEqual([3,4,5,6,7], lists:sort(IntermediateValues)),
                 ?assertEqual({ok, <<"7">>}, eredis_cluster:q(["get", "hij"]))
             end
-            }
-            ,
+            },
 
             { "atomic hget hset",
             fun () ->
                 eredis_cluster:q(["hset", "klm", "nop", 2]),
                 Incr = fun(Var) -> binary_to_integer(Var) + 1 end,
-                rpc:pmap({eredis_cluster, update_hash_field}, ["nop", Incr], lists:duplicate(5, "klm")),
+                Result = rpc:pmap({eredis_cluster, update_hash_field}, ["nop", Incr], lists:duplicate(5, "klm")),
+                IntermediateValues = proplists:get_all_values(ok, Result),
+                ?assertEqual([{<<"0">>,3},{<<"0">>,4},{<<"0">>,5},{<<"0">>,6},{<<"0">>,7}], lists:sort(IntermediateValues)),
                 ?assertEqual({ok, <<"7">>}, eredis_cluster:q(["hget", "klm", "nop"]))
             end
             }

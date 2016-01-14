@@ -1,6 +1,6 @@
 {application, eredis_cluster, [
     {description, "Eredis Cluster"},
-    {vsn, "0.5.3"},
+    {vsn, "0.5.4"},
     {modules, []},
     {registered, []},
     {applications, [

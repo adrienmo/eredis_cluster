@@ -69,11 +69,13 @@ transaction(Transaction, PoolKey) ->
     Slot = get_key_slot(PoolKey),
     transaction(Transaction, Slot, undefined, 0).
 
-transaction(Transaction, Slot, _, 0) ->
+transaction(Transaction, Slot, undefined, _) ->
     query(Transaction, Slot, 0);
 transaction(Transaction, Slot, ExpectedValue, Counter) ->
     case query(Transaction, Slot, 0) of
         ExpectedValue ->
+            transaction(Transaction, Slot, ExpectedValue, Counter - 1);
+        {ExpectedValue, _} ->
             transaction(Transaction, Slot, ExpectedValue, Counter - 1);
         Payload ->
             Payload
@@ -141,9 +143,15 @@ throttle_retries(_) -> timer:sleep(?REDIS_RETRY_DELAY).
 update_key(Key, UpdateFunction) ->
     UpdateFunction2 = fun(GetResult) ->
         {ok, Var} = GetResult,
-        [["SET", Key, UpdateFunction(Var)]]
+        UpdatedVar = UpdateFunction(Var),
+        {[["SET", Key, UpdatedVar]], UpdatedVar}
     end,
-    optimistic_locking_transaction(Key, ["GET", Key], UpdateFunction2).
+    case optimistic_locking_transaction(Key, ["GET", Key], UpdateFunction2) of
+        {ok, {_, NewValue}} ->
+            {ok, NewValue};
+        Error ->
+            Error
+    end.
 
 %% =============================================================================
 %% @doc Update the value of a field stored in a hash by applying the function
@@ -155,9 +163,15 @@ update_key(Key, UpdateFunction) ->
 update_hash_field(Key, Field, UpdateFunction) ->
     UpdateFunction2 = fun(GetResult) ->
         {ok, Var} = GetResult,
-        [["HSET", Key, Field, UpdateFunction(Var)]]
+        UpdatedVar = UpdateFunction(Var),
+        {[["HSET", Key, Field, UpdatedVar]], UpdatedVar}
     end,
-    optimistic_locking_transaction(Key, ["HGET", Key, Field], UpdateFunction2).
+    case optimistic_locking_transaction(Key, ["HGET", Key, Field], UpdateFunction2) of
+        {ok, {[FieldPresent], NewValue}} ->
+            {ok, {FieldPresent, NewValue}};
+        Error ->
+            Error
+    end.
 
 %% =============================================================================
 %% @doc Optimistic locking transaction helper, based on Redis documentation :
@@ -166,7 +180,7 @@ update_hash_field(Key, Field, UpdateFunction) ->
 %% =============================================================================
 -spec optimistic_locking_transaction(Key::anystring(), redis_command(),
     UpdateFunction::fun((redis_result()) -> redis_pipeline_command())) ->
-        redis_transaction_result().
+        {redis_transaction_result(), any()}.
 optimistic_locking_transaction(WatchedKey, GetCommand, UpdateFunction) ->
     Slot = get_key_slot(WatchedKey),
     Transaction = fun(Worker) ->
@@ -175,11 +189,23 @@ optimistic_locking_transaction(WatchedKey, GetCommand, UpdateFunction) ->
         %% Get necessary information for the modifier function
         GetResult = qw(Worker, GetCommand),
         %% Execute the pipelined command as a redis transaction
-        SetCommand = [["MULTI"]] ++ UpdateFunction(GetResult) ++ [["EXEC"]],
-        Result = qw(Worker, SetCommand),
-        lists:last(Result)
+        {UpdateCommand, Result} = case UpdateFunction(GetResult) of
+            {Command, Var} ->
+                {Command, Var};
+            Command ->
+                {Command, undefined}
+        end,
+        RedisResult = qw(Worker, [["MULTI"]] ++ UpdateCommand ++ [["EXEC"]]),
+        {lists:last(RedisResult), Result}
     end,
-	transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL).
+	case transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL) of
+        {{ok, undefined}, _} ->
+            {error, resource_busy};
+        {{ok, TransactionResult}, UpdateResult} ->
+            {ok, {TransactionResult, UpdateResult}};
+        {Error, _} ->
+            Error
+    end.
 
 %% =============================================================================
 %% @doc Perform a given query on all node of a redis cluster
