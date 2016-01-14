@@ -115,6 +115,16 @@ basic_test_() ->
                 ?assertEqual({ok, <<"7">>}, eredis_cluster:q(["get", "hij"]))
             end
             }
+            ,
+
+            { "atomic hget hset",
+            fun () ->
+                eredis_cluster:q(["hset", "klm", "nop", 2]),
+                Incr = fun(Var) -> binary_to_integer(Var) + 1 end,
+                rpc:pmap({eredis_cluster, update_hash_field}, ["nop", Incr], lists:duplicate(5, "klm")),
+                ?assertEqual({ok, <<"7">>}, eredis_cluster:q(["hget", "klm", "nop"]))
+            end
+            }
 
       ]
     }
