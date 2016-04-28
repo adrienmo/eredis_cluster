@@ -9,7 +9,7 @@
 -export([start/0, stop/0, connect/1]). % Application Management.
 
 % Generic redis call
--export([q/1, qp/1, qw/2, transaction/1, transaction/2]).
+-export([q/1, qp/1, qw/2, qk/2, qa/1, transaction/1, transaction/2]).
 
 % Specific redis command implementation
 -export([flushdb/0]).
@@ -97,6 +97,10 @@ qp(Commands) -> q(Commands).
 q(Command) ->
     query(Command).
 
+-spec qk(redis_command(), bitstring()) -> redis_result().
+qk(Command, PoolKey) ->
+    query(Command, PoolKey).
+
 query(Command) ->
     PoolKey = get_key_from_command(Command),
     query(Command, PoolKey).
@@ -117,10 +121,21 @@ query(Transaction, Slot, Counter) ->
     {Pool, Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
 
     case eredis_cluster_pool:transaction(Pool, Transaction) of
+        % If we detect a node went down, we should probably refresh the slot
+        % mapping.
         {error, no_connection} ->
             eredis_cluster_monitor:refresh_mapping(Version),
             query(Transaction, Slot, Counter+1);
 
+        % If the tcp connection is closed (connection timeout), the redis worker
+        % will try to reconnect, thus the connection should be recovered for
+        % the next request. We don't need to refresh the slot mapping in this
+        % case
+        {error, tcp_closed} ->
+            query(Transaction, Slot, Counter+1);
+
+        % Redis explicitly say our slot mapping is incorrect, we need to refresh
+        % it
         {error, <<"MOVED ", _/binary>>} ->
             eredis_cluster_monitor:refresh_mapping(Version),
             query(Transaction, Slot,  Counter+1);

@@ -80,14 +80,16 @@ Result = optimistic_locking_transaction(Key, ["GET", Key], Function),
 Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
 eredis_cluster:update_key("abc", Fun).
 
-%% Atomic Key update
-Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
-eredis_cluster:update_key("abc", Fun).
-
 %% Atomic Field update
 Fun = fun(Var) -> binary_to_integer(Var) + 1 end,
 eredis_cluster:update_hash_field("abc", "efg", Fun).
 
 %% Flush DB
 eredis_cluster:flushdb().
+
+%% Query on all cluster server
+eredis_cluster:qa(["FLUSHDB"]).
+
+%% Execute a query on the server containing the key "TEST"
+eredis_cluster:qk(["FLUSHDB"], "TEST").
 ```
