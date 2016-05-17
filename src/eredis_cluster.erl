@@ -9,7 +9,7 @@
 -export([start/0, stop/0, connect/1]). % Application Management.
 
 % Generic redis call
--export([q/1, qp/1, qw/2, qk/2, qa/1, transaction/1, transaction/2]).
+-export([q/1, qp/1, qw/2, qk/2, qa/1, qmn/1, transaction/1, transaction/2]).
 
 % Specific redis command implementation
 -export([flushdb/0]).
@@ -100,6 +100,50 @@ q(Command) ->
 -spec qk(redis_command(), bitstring()) -> redis_result().
 qk(Command, PoolKey) ->
     query(Command, PoolKey).
+
+%% =============================================================================
+%% @doc Multi node query
+%% @end
+%% =============================================================================
+-spec qmn(redis_pipeline_command()) -> redis_pipeline_result().
+qmn(Commands) ->
+    CommandsByPools = split_by_pools(Commands),
+
+    Res = lists:foldl(
+        fun({Pool, PoolCommands}, Acc) ->
+            Transaction = fun(Worker) -> qw(Worker, PoolCommands) end,
+            PoolQueryRes = eredis_cluster_pool:transaction(Pool, Transaction),
+            lists:zip(PoolCommands, PoolQueryRes) ++ Acc
+        end, [], CommandsByPools),
+
+    [begin
+         {_,QueryRes} = lists:keyfind(Command, 1, Res),
+         QueryRes
+     end || Command <- Commands].
+
+
+split_by_pools(Commands) ->
+    split_by_pools(Commands, []).
+
+split_by_pools([Command | T], Acc) ->
+    Key = get_key_from_command(Command),
+    Slot = get_key_slot(Key),
+    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+
+    NewAcc =
+        case lists:keyfind(Pool, 1, Acc) of
+            false ->
+                [{Pool, [Command]} | Acc];
+            {Pool, List} ->
+                List2 = [Command | List],
+                Acc2 = lists:keydelete(Pool, 1, Acc),
+                [{Pool, List2} | Acc2]
+        end,
+
+    split_by_pools(T, NewAcc);
+
+split_by_pools([], Acc) ->
+    Acc.
 
 query(Command) ->
     PoolKey = get_key_from_command(Command),
