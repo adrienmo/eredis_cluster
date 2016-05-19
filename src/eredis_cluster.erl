@@ -107,43 +107,46 @@ qk(Command, PoolKey) ->
 %% =============================================================================
 -spec qmn(redis_pipeline_command()) -> redis_pipeline_result().
 qmn(Commands) ->
-    CommandsByPools = split_by_pools(Commands),
+    {CommandsByPools, MappingInfo} = split_by_pools(Commands),
+    qmn2(CommandsByPools, MappingInfo, []).
 
-    Res = lists:foldl(
-        fun({Pool, PoolCommands}, Acc) ->
-            Transaction = fun(Worker) -> qw(Worker, PoolCommands) end,
-            PoolQueryRes = eredis_cluster_pool:transaction(Pool, Transaction),
-            lists:zip(PoolCommands, PoolQueryRes) ++ Acc
-        end, [], CommandsByPools),
-
-    [begin
-         {_,QueryRes} = lists:keyfind(Command, 1, Res),
-         QueryRes
-     end || Command <- Commands].
-
+qmn2([{Pool, PoolCommands} | T1], [{Pool, Mapping} | T2], Acc) ->
+    Transaction = fun(Worker) -> qw(Worker, PoolCommands) end,
+    Res = eredis_cluster_pool:transaction(Pool, Transaction),
+    MappedRes = lists:zip(Mapping,Res),
+    qmn2(T1, T2, MappedRes ++ Acc);
+qmn2([], [], Acc) ->
+    SortedAcc =
+        lists:sort(
+            fun({Index1, _},{Index2, _}) ->
+                Index1 < Index2
+            end, Acc),
+    [Res || {_,Res} <- SortedAcc].
 
 split_by_pools(Commands) ->
-    split_by_pools(Commands, []).
+    split_by_pools(Commands, 1, [], []).
 
-split_by_pools([Command | T], Acc) ->
+split_by_pools([Command | T], Index, CmdAcc, MapAcc) ->
     Key = get_key_from_command(Command),
     Slot = get_key_slot(Key),
     {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
-
-    NewAcc =
-        case lists:keyfind(Pool, 1, Acc) of
+    {NewAcc1, NewAcc2} =
+        case lists:keyfind(Pool, 1, CmdAcc) of
             false ->
-                [{Pool, [Command]} | Acc];
-            {Pool, List} ->
-                List2 = [Command | List],
-                Acc2 = lists:keydelete(Pool, 1, Acc),
-                [{Pool, List2} | Acc2]
+                {[{Pool, [Command]} | CmdAcc], [{Pool, [Index]} | MapAcc]};
+            {Pool, CmdList} ->
+                CmdList2 = [Command | CmdList],
+                CmdAcc2  = lists:keydelete(Pool, 1, CmdAcc),
+                {Pool, MapList} = lists:keyfind(Pool, 1, MapAcc),
+                MapList2 = [Index | MapList],
+                MapAcc2  = lists:keydelete(Pool, 1, MapAcc),
+                {[{Pool, CmdList2} | CmdAcc2], [{Pool, MapList2} | MapAcc2]}
         end,
-
-    split_by_pools(T, NewAcc);
-
-split_by_pools([], Acc) ->
-    Acc.
+    split_by_pools(T, Index+1, NewAcc1, NewAcc2);
+split_by_pools([], _Index, CmdAcc, MapAcc) ->
+    CmdAcc2 = [{Pool, lists:reverse(Commands)} || {Pool, Commands} <- CmdAcc],
+    MapAcc2 = [{Pool, lists:reverse(Mapping)} || {Pool, Mapping} <- MapAcc],
+    {CmdAcc2, MapAcc2}.
 
 query(Command) ->
     PoolKey = get_key_from_command(Command),
