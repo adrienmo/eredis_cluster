@@ -41,6 +41,19 @@ basic_test_() ->
             end
             },
 
+            { "multi node",
+                fun () ->
+                    N=1000,
+                    Keys = [integer_to_list(I) || I <- lists:seq(1,N)],
+                    [eredis_cluster:q(["SETEX", Key, "50", Key]) || Key <- Keys],
+                    Guard1 = [{ok, integer_to_binary(list_to_integer(Key)+1)} || Key <- Keys],
+                    ?assertMatch(Guard1, eredis_cluster:qmn([["INCR", Key] || Key <- Keys])),
+                    eredis_cluster:q(["SETEX", "a", "50", "0"]),
+                    Guard2 = [{ok, integer_to_binary(Key)} || Key <- lists:seq(1,5)],
+                    ?assertMatch(Guard2, eredis_cluster:qmn([["INCR", "a"] || _I <- lists:seq(1,5)]))
+                end
+            },
+
             { "transaction",
             fun () ->
                 ?assertMatch({ok,[_,_,_]}, eredis_cluster:transaction([["get","abc"],["get","abc"],["get","abc"]])),

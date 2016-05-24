@@ -41,9 +41,9 @@ query(Worker, Commands) ->
 
 handle_call({'query', _}, _From, #state{conn = undefined} = State) ->
     {reply, {error, no_connection}, State};
-handle_call({'query', [[X|Y]|Z]}, _From, #state{conn = Conn} = State)
+handle_call({'query', [[X|_]|_] = Commands}, _From, #state{conn = Conn} = State)
     when is_list(X); is_binary(X) ->
-    {reply, eredis:qp(Conn, [[X|Y]|Z]), State};
+    {reply, eredis:qp(Conn, Commands), State};
 handle_call({'query', Command}, _From, #state{conn = Conn} = State) ->
     {reply, eredis:q(Conn, Command), State};
 handle_call(_Request, _From, State) ->

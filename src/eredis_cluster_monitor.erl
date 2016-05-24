@@ -118,9 +118,10 @@ get_cluster_slots_from_single_node(Node) ->
 
 -spec parse_cluster_slots([[bitstring() | [bitstring()]]]) -> [#slots_map{}].
 parse_cluster_slots(ClusterInfo) ->
-    Length = erlang:length(ClusterInfo),
-    ClusterInfoI = lists:zip(ClusterInfo,lists:seq(1,Length)),
-    [
+    parse_cluster_slots(ClusterInfo, 1, []).
+
+parse_cluster_slots([[StartSlot, EndSlot | [[Address, Port | _] | _]] | T], Index, Acc) ->
+    SlotsMap =
         #slots_map{
             index = Index,
             start_slot = binary_to_integer(StartSlot),
@@ -129,10 +130,12 @@ parse_cluster_slots(ClusterInfo) ->
                 address = binary_to_list(Address),
                 port = binary_to_integer(Port)
             }
-        }
-        % Only get the information from the master node (first node) of the list
-        || {[StartSlot, EndSlot | [[Address, Port] | _]],Index} <- ClusterInfoI
-    ].
+        },
+    parse_cluster_slots(T, Index+1, [SlotsMap | Acc]);
+parse_cluster_slots([], _Index, Acc) ->
+    lists:reverse(Acc).
+
+
 
 -spec close_connection(#slots_map{}) -> ok.
 close_connection(SlotsMap) ->
