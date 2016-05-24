@@ -140,6 +140,15 @@ basic_test_() ->
                 ?assertEqual([{<<"0">>,3},{<<"0">>,4},{<<"0">>,5},{<<"0">>,6},{<<"0">>,7}], lists:sort(IntermediateValues)),
                 ?assertEqual({ok, <<"7">>}, eredis_cluster:q(["hget", "klm", "nop"]))
             end
+            },
+
+            { "eval",
+            fun () ->
+                Script = <<"return redis.call('set', KEYS[1], ARGV[1]);">>,
+                ScriptHash = << << if N >= 10 -> N -10 + $a; true -> N + $0 end >> || <<N:4>> <= crypto:hash(sha, Script) >>,
+                eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
+                ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
+            end
             }
 
       ]

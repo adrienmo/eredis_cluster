@@ -18,6 +18,7 @@
 -export([update_key/2]).
 -export([update_hash_field/3]).
 -export([optimistic_locking_transaction/3]).
+-export([eval/4]).
 
 -include("eredis_cluster.hrl").
 
@@ -82,26 +83,6 @@ transaction(Transaction, Slot, ExpectedValue, Counter) ->
     end.
 
 %% =============================================================================
-%% @doc Wrapper function for command using pipelined commands
-%% @end
-%% =============================================================================
--spec qp(redis_pipeline_command()) -> redis_pipeline_result().
-qp(Commands) -> q(Commands).
-
-%% =============================================================================
-%% @doc This function execute simple or pipelined command on a single redis node
-%% the node will be automatically found according to the key used in the command
-%% @end
-%% =============================================================================
--spec q(redis_command()) -> redis_result().
-q(Command) ->
-    query(Command).
-
--spec qk(redis_command(), bitstring()) -> redis_result().
-qk(Command, PoolKey) ->
-    query(Command, PoolKey).
-
-%% =============================================================================
 %% @doc Multi node query
 %% @end
 %% =============================================================================
@@ -147,6 +128,26 @@ split_by_pools([], _Index, CmdAcc, MapAcc) ->
     CmdAcc2 = [{Pool, lists:reverse(Commands)} || {Pool, Commands} <- CmdAcc],
     MapAcc2 = [{Pool, lists:reverse(Mapping)} || {Pool, Mapping} <- MapAcc],
     {CmdAcc2, MapAcc2}.
+
+%% =============================================================================
+%% @doc Wrapper function for command using pipelined commands
+%% @end
+%% =============================================================================
+-spec qp(redis_pipeline_command()) -> redis_pipeline_result().
+qp(Commands) -> q(Commands).
+
+%% =============================================================================
+%% @doc This function execute simple or pipelined command on a single redis node
+%% the node will be automatically found according to the key used in the command
+%% @end
+%% =============================================================================
+-spec q(redis_command()) -> redis_result().
+q(Command) ->
+    query(Command).
+
+-spec qk(redis_command(), bitstring()) -> redis_result().
+qk(Command, PoolKey) ->
+    query(Command, PoolKey).
 
 query(Command) ->
     PoolKey = get_key_from_command(Command),
@@ -267,6 +268,31 @@ optimistic_locking_transaction(WatchedKey, GetCommand, UpdateFunction) ->
             {ok, {TransactionResult, UpdateResult}};
         {Error, _} ->
             Error
+    end.
+
+%% =============================================================================
+%% @doc Eval command helper, to optimize the query, it will try to execute the
+%% script using its hashed value. If no script is found, it will load it and
+%% try again.
+%% @end
+%% =============================================================================
+-spec eval(bitstring(), bitstring(), [bitstring()], [bitstring()]) ->
+    redis_result().
+eval(Script, ScriptHash, Keys, Args) ->
+    KeyNb = length(Keys),
+    EvalShaCommand = ["EVALSHA", ScriptHash, KeyNb] ++ Keys ++ Args,
+    Key = if
+        KeyNb == 0 -> "A"; %Random key
+        true -> hd(Keys)
+    end,
+
+    case qk(EvalShaCommand, Key) of
+        {error, <<"NOSCRIPT", _/binary>>} ->
+            LoadCommand = ["SCRIPT", "LOAD", Script],
+            [_, Result] = qk([LoadCommand, EvalShaCommand], Key),
+            Result;
+        Result ->
+            Result
     end.
 
 %% =============================================================================
