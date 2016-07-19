@@ -11,6 +11,12 @@ defmodule EredisCluster.Mixfile do
      deps: deps]
   end
 
+  def application do
+    [mod: {:eredis_cluster, []},
+     applications: [:eredis, :poolboy]
+    ]
+  end
+
   defp deps do
     [{:poolboy, "~> 1.5.1"},
       {:eredis, "~> 1.0.8"}]
