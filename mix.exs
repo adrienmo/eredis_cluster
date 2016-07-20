@@ -23,7 +23,7 @@ defmodule EredisCluster.Mixfile do
   end
 
   defp package do
-    [files: ~w(include src rebar.config README.md LICENSE VERSION),
+    [files: ~w(include src mix.exs rebar.config README.md LICENSE VERSION),
      maintainers: ["Adrien Moreau"],
      licenses: ["MIT"],
      links: %{"GitHub" => "https://github.com/adrienmo/eredis_cluster"}]
