@@ -89,20 +89,37 @@ transaction(Transaction, Slot, ExpectedValue, Counter) ->
 -spec qmn(redis_pipeline_command()) -> redis_pipeline_result().
 qmn(Commands) ->
     {CommandsByPools, MappingInfo} = split_by_pools(Commands),
-    qmn2(CommandsByPools, MappingInfo, []).
+    qmn2(CommandsByPools, MappingInfo, Commands, []).
 
-qmn2([{Pool, PoolCommands} | T1], [{Pool, Mapping} | T2], Acc) ->
+qmn2([{{Pool, Slot}, PoolCommands} | T1], [{Pool, Mapping} | T2], Commands, Acc) ->
     Transaction = fun(Worker) -> qw(Worker, PoolCommands) end,
-    Res = eredis_cluster_pool:transaction(Pool, Transaction),
-    MappedRes = lists:zip(Mapping,Res),
-    qmn2(T1, T2, MappedRes ++ Acc);
-qmn2([], [], Acc) ->
+    case eredis_cluster_pool:transaction(Pool, Transaction) of
+        {error, _} = Error -> Error;
+        Res ->
+            case any_has_moved(Res) of
+                true ->
+                    %% one of the keys requested has moved,
+                    %% redo the mapping and repeat the whole request
+                    {Pool, Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+                    eredis_cluster_monitor:refresh_mapping(Version),
+                    qmn(Commands);
+                false ->
+                    MappedRes = lists:zip(Mapping,Res),
+                    qmn2(T1, T2, Commands, MappedRes ++ Acc)
+            end
+    end;
+qmn2([], [], _, Acc) ->
     SortedAcc =
         lists:sort(
             fun({Index1, _},{Index2, _}) ->
                 Index1 < Index2
             end, Acc),
     [Res || {_,Res} <- SortedAcc].
+
+any_has_moved(L) ->
+    lists:any(fun({error, <<"MOVED ", _/binary>>}) -> true;
+                    (_) -> false
+                 end, L).
 
 split_by_pools(Commands) ->
     split_by_pools(Commands, 1, [], []).
@@ -112,20 +129,20 @@ split_by_pools([Command | T], Index, CmdAcc, MapAcc) ->
     Slot = get_key_slot(Key),
     {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
     {NewAcc1, NewAcc2} =
-        case lists:keyfind(Pool, 1, CmdAcc) of
+        case lists:keyfind({Pool, Slot}, 1, CmdAcc) of
             false ->
-                {[{Pool, [Command]} | CmdAcc], [{Pool, [Index]} | MapAcc]};
-            {Pool, CmdList} ->
+                {[{{Pool, Slot}, [Command]} | CmdAcc], [{Pool, [Index]} | MapAcc]};
+            {{Pool, Slot}, CmdList} ->
                 CmdList2 = [Command | CmdList],
-                CmdAcc2  = lists:keydelete(Pool, 1, CmdAcc),
-                {Pool, MapList} = lists:keyfind(Pool, 1, MapAcc),
+                CmdAcc2  = lists:keydelete({Pool, Slot}, 1, CmdAcc),
+                {{Pool, Slot}, MapList} = lists:keyfind({Pool, Slot}, 1, MapAcc),
                 MapList2 = [Index | MapList],
-                MapAcc2  = lists:keydelete(Pool, 1, MapAcc),
-                {[{Pool, CmdList2} | CmdAcc2], [{Pool, MapList2} | MapAcc2]}
+                MapAcc2  = lists:keydelete({Pool, Slot}, 1, MapAcc),
+                {[{{Pool, Slot}, CmdList2} | CmdAcc2], [{Pool, MapList2} | MapAcc2]}
         end,
     split_by_pools(T, Index+1, NewAcc1, NewAcc2);
 split_by_pools([], _Index, CmdAcc, MapAcc) ->
-    CmdAcc2 = [{Pool, lists:reverse(Commands)} || {Pool, Commands} <- CmdAcc],
+    CmdAcc2 = [{{Pool, Slot}, lists:reverse(Commands)} || {{Pool, Slot},  Commands} <- CmdAcc],
     MapAcc2 = [{Pool, lists:reverse(Mapping)} || {Pool, Mapping} <- MapAcc],
     {CmdAcc2, MapAcc2}.
 
