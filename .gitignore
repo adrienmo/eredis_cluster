@@ -11,3 +11,4 @@ rel/example_project
 rebar.lock
 _build/
 priv/
+doc/
