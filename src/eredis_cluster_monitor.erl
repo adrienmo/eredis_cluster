@@ -164,7 +164,9 @@ connect_node(Node) ->
 
 safe_eredis_start_link(Address,Port) ->
     process_flag(trap_exit, true),
-    Payload = eredis:start_link(Address, Port),
+    DataBase = application:get_env(eredis_cluster, database, 0),
+    Password = application:get_env(eredis_cluster, password, ""),
+    Payload = eredis:start_link(Address, Port, DataBase, Password),
     process_flag(trap_exit, false),
     Payload.
 
