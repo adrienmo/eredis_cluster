@@ -105,12 +105,13 @@ qmn2([], [], Acc) ->
     [Res || {_,Res} <- SortedAcc].
 
 split_by_pools(Commands) ->
-    split_by_pools(Commands, 1, [], []).
+    State = eredis_cluster_monitor:get_state(),
+    split_by_pools(Commands, 1, [], [], State).
 
-split_by_pools([Command | T], Index, CmdAcc, MapAcc) ->
+split_by_pools([Command | T], Index, CmdAcc, MapAcc, State) ->
     Key = get_key_from_command(Command),
     Slot = get_key_slot(Key),
-    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot, State),
     {NewAcc1, NewAcc2} =
         case lists:keyfind(Pool, 1, CmdAcc) of
             false ->
@@ -123,8 +124,8 @@ split_by_pools([Command | T], Index, CmdAcc, MapAcc) ->
                 MapAcc2  = lists:keydelete(Pool, 1, MapAcc),
                 {[{Pool, CmdList2} | CmdAcc2], [{Pool, MapList2} | MapAcc2]}
         end,
-    split_by_pools(T, Index+1, NewAcc1, NewAcc2);
-split_by_pools([], _Index, CmdAcc, MapAcc) ->
+    split_by_pools(T, Index+1, NewAcc1, NewAcc2, State);
+split_by_pools([], _Index, CmdAcc, MapAcc, _State) ->
     CmdAcc2 = [{Pool, lists:reverse(Commands)} || {Pool, Commands} <- CmdAcc],
     MapAcc2 = [{Pool, lists:reverse(Mapping)} || {Pool, Mapping} <- MapAcc],
     {CmdAcc2, MapAcc2}.
