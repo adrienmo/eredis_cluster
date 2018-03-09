@@ -33,6 +33,19 @@ your app.config):
 	        {pool_max_overflow, 0}
 	    ]
 	}
+Or:
+	{eredis_cluster,
+	    [
+	        {init_nodes,[
+	            {"127.0.0.1",30001},
+	            {"127.0.0.1",30002}
+	        ]},
+	        {pool_size, 5},
+	        {pool_max_overflow, 0},
+		{database, 0},
+ 		{password, "redis_pw"}
+	    ]
+	}
 
 You don't need to specify all nodes of your configuration as eredis_cluster will
 retrieve them through the command `CLUSTER SLOTS` at runtime.
