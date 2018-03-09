@@ -33,7 +33,9 @@ your app.config):
 	        {pool_max_overflow, 0}
 	    ]
 	}
+
 Or:
+
 	{eredis_cluster,
 	    [
 	        {init_nodes,[
