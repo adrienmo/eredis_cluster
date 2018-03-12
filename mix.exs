@@ -1,14 +1,14 @@
 defmodule EredisCluster.Mixfile do
   use Mix.Project
 
-  @version File.read!("VERSION") |> String.strip
+  @version File.read!("VERSION") |> String.trim
 
   def project do
     [app: :eredis_cluster,
      version: @version,
      description: "An erlang wrapper for eredis library to support cluster mode",
-     package: package,
-     deps: deps]
+     package: package(),
+     deps: deps()]
   end
 
   def application do
