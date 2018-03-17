@@ -41,6 +41,20 @@ basic_test_() ->
             end
             },
 
+            { "multi node get",
+                fun () ->
+                    N=1000,
+                    Keys = [integer_to_list(I) || I <- lists:seq(1,N)],
+                    [eredis_cluster:q(["SETEX", Key, "50", Key]) || Key <- Keys],
+                    Guard1 = [{ok, integer_to_binary(list_to_integer(Key))} || Key <- Keys],
+                    ?assertMatch(Guard1, eredis_cluster:qmn([["GET", Key] || Key <- Keys])),
+                    eredis_cluster:q(["SETEX", "a", "50", "0"]),
+                    Guard2 = [{ok, integer_to_binary(0)} || _Key <- lists:seq(1,5)],
+                    ?assertMatch(Guard2, eredis_cluster:qmn([["GET", "a"] || _I <- lists:seq(1,5)]))
+                end
+            },
+
+            % WARNING: This test will fail during rebalancing, as qmn does not guarantee transaction across nodes
             { "multi node",
                 fun () ->
                     N=1000,

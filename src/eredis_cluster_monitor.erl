@@ -5,7 +5,7 @@
 -export([start_link/0]).
 -export([connect/1]).
 -export([refresh_mapping/1]).
--export([get_state/0]).
+-export([get_state/0, get_state_version/1]).
 -export([get_pool_by_slot/1, get_pool_by_slot/2]).
 -export([get_all_pools/0]).
 
@@ -47,6 +47,9 @@ refresh_mapping(Version) ->
 get_state() ->
     [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
     State.
+
+get_state_version(State) ->
+    State#state.version.
 
 -spec get_all_pools() -> [pid()].
 get_all_pools() ->
