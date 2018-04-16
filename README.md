@@ -80,7 +80,7 @@ Function = fun(Worker) ->
     %% Do something with Var %%
     Var2 = binary_to_integer(Var) + 1,
 
-    {ok, Result} eredis_cluster:qw(Worker,[["MULTI"], ["SET", "abc", Var2], ["EXEC"]]),
+    {ok, Result} = eredis_cluster:qw(Worker,[["MULTI"], ["SET", "abc", Var2], ["EXEC"]]),
     lists:last(Result)
 end,
 eredis_cluster:transaction(Function, "abc").
