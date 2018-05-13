@@ -87,16 +87,30 @@ transaction(Transaction, Slot, ExpectedValue, Counter) ->
 %% @end
 %% =============================================================================
 -spec qmn(redis_pipeline_command()) -> redis_pipeline_result().
-qmn(Commands) ->
-    {CommandsByPools, MappingInfo} = split_by_pools(Commands),
-    qmn2(CommandsByPools, MappingInfo, []).
+qmn(Commands) -> qmn(Commands, 0).
 
-qmn2([{Pool, PoolCommands} | T1], [{Pool, Mapping} | T2], Acc) ->
+qmn(_, ?REDIS_CLUSTER_REQUEST_TTL) -> 
+    {error, no_connection};
+qmn(Commands, Counter) ->
+    %% Throttle retries
+    throttle_retries(Counter),
+
+    {CommandsByPools, MappingInfo, Version} = split_by_pools(Commands),
+    case qmn2(CommandsByPools, MappingInfo, [], Version) of
+        retry -> qmn(Commands, Counter + 1);
+        Res -> Res
+    end.
+
+qmn2([{Pool, PoolCommands} | T1], [{Pool, Mapping} | T2], Acc, Version) ->
     Transaction = fun(Worker) -> qw(Worker, PoolCommands) end,
-    Res = eredis_cluster_pool:transaction(Pool, Transaction),
-    MappedRes = lists:zip(Mapping,Res),
-    qmn2(T1, T2, MappedRes ++ Acc);
-qmn2([], [], Acc) ->
+    Result = eredis_cluster_pool:transaction(Pool, Transaction),
+    case handle_transaction_result(Result, Version, check_pipeline_result) of
+        retry -> retry;
+        Res -> 
+            MappedRes = lists:zip(Mapping,Res),
+            qmn2(T1, T2, MappedRes ++ Acc, Version)
+    end;
+qmn2([], [], Acc, _) ->
     SortedAcc =
         lists:sort(
             fun({Index1, _},{Index2, _}) ->
@@ -105,12 +119,13 @@ qmn2([], [], Acc) ->
     [Res || {_,Res} <- SortedAcc].
 
 split_by_pools(Commands) ->
-    split_by_pools(Commands, 1, [], []).
+    State = eredis_cluster_monitor:get_state(),
+    split_by_pools(Commands, 1, [], [], State).
 
-split_by_pools([Command | T], Index, CmdAcc, MapAcc) ->
+split_by_pools([Command | T], Index, CmdAcc, MapAcc, State) ->
     Key = get_key_from_command(Command),
     Slot = get_key_slot(Key),
-    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot, State),
     {NewAcc1, NewAcc2} =
         case lists:keyfind(Pool, 1, CmdAcc) of
             false ->
@@ -123,11 +138,11 @@ split_by_pools([Command | T], Index, CmdAcc, MapAcc) ->
                 MapAcc2  = lists:keydelete(Pool, 1, MapAcc),
                 {[{Pool, CmdList2} | CmdAcc2], [{Pool, MapList2} | MapAcc2]}
         end,
-    split_by_pools(T, Index+1, NewAcc1, NewAcc2);
-split_by_pools([], _Index, CmdAcc, MapAcc) ->
+    split_by_pools(T, Index+1, NewAcc1, NewAcc2, State);
+split_by_pools([], _Index, CmdAcc, MapAcc, State) ->
     CmdAcc2 = [{Pool, lists:reverse(Commands)} || {Pool, Commands} <- CmdAcc],
     MapAcc2 = [{Pool, lists:reverse(Mapping)} || {Pool, Mapping} <- MapAcc],
-    {CmdAcc2, MapAcc2}.
+    {CmdAcc2, MapAcc2, eredis_cluster_monitor:get_state_version(State)}.
 
 %% =============================================================================
 %% @doc Wrapper function for command using pipelined commands
@@ -168,28 +183,50 @@ query(Transaction, Slot, Counter) ->
 
     {Pool, Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
 
-    case eredis_cluster_pool:transaction(Pool, Transaction) of
-        % If we detect a node went down, we should probably refresh the slot
+    Result = eredis_cluster_pool:transaction(Pool, Transaction),
+    case handle_transaction_result(Result, Version) of 
+        retry -> query(Transaction, Slot, Counter + 1);
+        Result -> Result
+    end.
+
+handle_transaction_result(Result, Version) ->
+    case Result of 
+       % If we detect a node went down, we should probably refresh the slot
         % mapping.
         {error, no_connection} ->
             eredis_cluster_monitor:refresh_mapping(Version),
-            query(Transaction, Slot, Counter+1);
+            retry;
 
         % If the tcp connection is closed (connection timeout), the redis worker
         % will try to reconnect, thus the connection should be recovered for
         % the next request. We don't need to refresh the slot mapping in this
         % case
         {error, tcp_closed} ->
-            query(Transaction, Slot, Counter+1);
+            retry;
 
         % Redis explicitly say our slot mapping is incorrect, we need to refresh
         % it
         {error, <<"MOVED ", _/binary>>} ->
             eredis_cluster_monitor:refresh_mapping(Version),
-            query(Transaction, Slot,  Counter+1);
+            retry;
 
         Payload ->
             Payload
+    end.
+handle_transaction_result(Result, Version, check_pipeline_result) ->
+    case handle_transaction_result(Result, Version) of
+       retry -> retry;
+       Payload when is_list(Payload) ->
+           Pred = fun({error, <<"MOVED ", _/binary>>}) -> true;
+                    (_) -> false
+                 end,
+           case lists:any(Pred, Payload) of
+               false -> Payload;
+               true ->
+                   eredis_cluster_monitor:refresh_mapping(Version),
+                   retry
+           end;
+       Payload -> Payload
     end.
 
 -spec throttle_retries(integer()) -> ok.
