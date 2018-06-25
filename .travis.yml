@@ -4,5 +4,6 @@ otp_release:
    - 18.2
    - 19.3
    - 20.0
+   - 21.0
 install: make travis-install
 script: make travis-run
