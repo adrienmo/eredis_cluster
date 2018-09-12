@@ -18,9 +18,9 @@ defmodule EredisCluster.Mixfile do
   end
 
   defp deps do
-    [{:poolboy, "~> 1.5.1"},
-      {:eredis, "~> 1.1.0"},
-      {:ex_doc, ">= 0.0.0", only: :dev}]
+    [{:poolboy, git: "https://github.com/devinus/poolboy.git", tag: "1.5.2"},
+      {:eredis, "~> 1.2.0"},
+      {:ex_doc, "~> 0.19.1"}]
   end
 
   defp package do

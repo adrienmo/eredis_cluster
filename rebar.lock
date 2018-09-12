@@ -1,0 +1,10 @@
+{"1.1.0",
+[{<<"eredis">>,{pkg,<<"eredis">>,<<"1.2.0">>},0},
+ {<<"poolboy">>,
+  {git,"https://github.com/devinus/poolboy",
+       {ref,"29be47db8c2be38b18c908e43a80ebb7b9b6116b"}},
+  0}]}.
+[
+{pkg_hash,[
+ {<<"eredis">>, <<"0B8E9CFC2C00FA1374CD107EA63B49BE08D933DF2CF175E6A89B73DD9C380DE4">>}]}
+].
