@@ -1,9 +1,10 @@
 language: erlang
 otp_release:
-   - 17.5
-   - 18.2
-   - 19.3
-   - 20.0
    - 21.0
+   - 20.3
+   - 19.3
+   - 18.3
+   - 17.5
+
 install: make travis-install
 script: make travis-run
