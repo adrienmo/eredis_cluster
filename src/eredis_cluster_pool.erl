@@ -5,6 +5,7 @@
 -export([create/2]).
 -export([stop/1]).
 -export([transaction/2]).
+-export([transaction_all/2]).
 
 %% Supervisor
 -export([start_link/0]).
@@ -53,6 +54,24 @@ transaction(PoolName, Transaction) ->
             {error, no_connection}
     end.
 
+%% this executes a transaction in all the pools  
+%% used mainly for broadcasting readonly query to all the slaves
+-spec transaction_all(PoolName::atom(), Command :: list()) ->
+    ok.
+transaction_all(PoolName, Command) ->
+    try
+        Workers = gen_server:call(PoolName, get_avail_workers),
+        lists:foreach( fun(Worker) -> 
+                eredis_cluster_pool_worker:query(Worker, Command)
+            end,
+            Workers
+        ),
+        ok
+    catch
+        exit:_ ->
+        throw({error,cannot_issue_readonly_to_slaves})
+    end.
+
 -spec stop(PoolName::atom()) -> ok.
 stop(PoolName) ->
     supervisor:terminate_child(?MODULE,PoolName),
@@ -61,7 +80,8 @@ stop(PoolName) ->
 
 -spec get_name(Host::string(), Port::integer()) -> PoolName::atom().
 get_name(Host, Port) ->
-    list_to_atom(Host ++ "#" ++ integer_to_list(Port)).
+    Random = random:uniform(100000),
+    list_to_atom(Host ++ "#" ++ integer_to_list(Port) ++ integer_to_list(Random)).
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->

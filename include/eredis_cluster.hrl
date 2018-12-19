@@ -24,6 +24,7 @@
     start_slot :: integer(),
     end_slot :: integer(),
     index :: integer(),
+    type :: atom(),
     node :: #node{}
 }).
 
