@@ -1,7 +1,7 @@
 defmodule EredisCluster.Mixfile do
   use Mix.Project
 
-  @version File.read!("VERSION") |> String.trim
+  @version String.trim(File.read!("VERSION"))
 
   def project do
     [app: :eredis_cluster,
