@@ -80,7 +80,7 @@ stop(PoolName) ->
 
 -spec get_name(Host::string(), Port::integer()) -> PoolName::atom().
 get_name(Host, Port) ->
-    Random = random:uniform(100000),
+    Random = rand:uniform(100000),
     list_to_atom(Host ++ "#" ++ integer_to_list(Port) ++ integer_to_list(Random)).
 
 -spec start_link() -> {ok, pid()}.
