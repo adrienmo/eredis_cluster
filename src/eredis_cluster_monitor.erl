@@ -84,7 +84,7 @@ get_pool_by_slot(Slot, State, CommandType) ->
     Cluster =  case {CommandType, State#state.replica_read_flag}  of 
         {read, true} -> 
             ReadClusters = [Cluster || Cluster <- tuple_to_list(State#state.slots_maps), Cluster#slots_map.index == Index, Cluster#slots_map.type == replica],
-            lists:nth(rand:uniform(length(ReadClusters)), ReadClusters); %% Gets a random element from the read replicas
+            lists:nth(crypto:rand_uniform(0, length(ReadClusters)) + 1, ReadClusters); %% Gets a random element from the read replicas
         _ ->
             hd([Cluster || Cluster <- tuple_to_list(State#state.slots_maps), Cluster#slots_map.index == Index, Cluster#slots_map.type == master])
     end,    
