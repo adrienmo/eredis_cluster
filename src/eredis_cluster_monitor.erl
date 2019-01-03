@@ -12,6 +12,7 @@
 -export([get_all_master_pools/0]).
 -export([get_all_pools/0]).
 
+
 %% gen_server.
 -export([init/1]).
 -export([handle_call/3]).
@@ -20,8 +21,11 @@
 -export([terminate/2]).
 -export([code_change/3]).
 
+
+
 %% Type definition.
 -include("eredis_cluster.hrl").
+
 -record(state, {
     init_nodes :: [#node{}],
     slots :: tuple(), %% whose elements are integer indexes into slots_maps
@@ -84,7 +88,7 @@ get_pool_by_slot(Slot, State, CommandType) ->
     Cluster =  case {CommandType, State#state.replica_read_flag}  of 
         {read, true} -> 
             ReadClusters = [Cluster || Cluster <- tuple_to_list(State#state.slots_maps), Cluster#slots_map.index == Index, Cluster#slots_map.type == replica],
-            lists:nth(crypto:rand_uniform(0, length(ReadClusters)) + 1, ReadClusters); %% Gets a random element from the read replicas
+            lists:nth(util:get_random_number(length(ReadClusters)), ReadClusters); %% Gets a random element from the read replicas
         _ ->
             hd([Cluster || Cluster <- tuple_to_list(State#state.slots_maps), Cluster#slots_map.index == Index, Cluster#slots_map.type == master])
     end,    

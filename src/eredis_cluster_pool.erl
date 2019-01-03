@@ -1,6 +1,7 @@
 -module(eredis_cluster_pool).
 -behaviour(supervisor).
 
+
 %% API.
 -export([create/2]).
 -export([stop/1]).
@@ -80,7 +81,7 @@ stop(PoolName) ->
 
 -spec get_name(Host::string(), Port::integer()) -> PoolName::atom().
 get_name(Host, Port) ->
-    Random = crypto:rand_uniform(1, 100000),
+    Random = util:get_random_number(100000),
     list_to_atom(Host ++ "#" ++ integer_to_list(Port) ++ integer_to_list(Random)). %% Generate a random name for the pool
 
 -spec start_link() -> {ok, pid()}.
