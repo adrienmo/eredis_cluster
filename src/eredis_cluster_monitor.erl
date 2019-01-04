@@ -288,7 +288,7 @@ connect_(InitNodes, ReplicaReadsFlag) ->
 init(_Args) ->
     ets:new(?MODULE, [protected, set, named_table, {read_concurrency, true}]),
     InitNodes = application:get_env(eredis_cluster, init_nodes, []),
-    ReplicaReadsFlag = case application:get_env(replica_read_flag, init_nodes, []) of 
+    ReplicaReadsFlag = case application:get_env(eredis_cluster, replica_read_flag, undefined) of 
         [] -> false;
         [true] -> true;
         true -> true;
