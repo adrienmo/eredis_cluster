@@ -191,7 +191,7 @@ parse_cluster_slots([[StartSlot, EndSlot | [[Address, Port | _] | ReplicaSlots]]
 parse_cluster_slots([], _Index, Acc, _) ->
     lists:reverse(Acc).
 
-parse_replica_slots([[Address, Port, _] | Slots], Index, {StartSlot, EndSlot}, Acc) ->
+parse_replica_slots([[Address, Port | _ ] | Slots], Index, {StartSlot, EndSlot}, Acc) ->
     ReplicaSlotsMaps = #slots_map{
         index = Index,
         type = replica,
@@ -203,6 +203,7 @@ parse_replica_slots([[Address, Port, _] | Slots], Index, {StartSlot, EndSlot}, A
         }
     },
     parse_replica_slots(Slots, Index, {StartSlot, EndSlot}, [ReplicaSlotsMaps | Acc]);
+
 parse_replica_slots([], _, _, Acc) ->
     Acc.  
 
