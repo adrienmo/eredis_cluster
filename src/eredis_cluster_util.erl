@@ -1,4 +1,4 @@
--module(util).
+-module(eredis_cluster_util).
 
 -export([get_random_number/1]).
 
