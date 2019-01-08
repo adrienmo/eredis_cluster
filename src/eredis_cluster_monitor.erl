@@ -66,15 +66,15 @@ get_state_version(State) ->
 get_all_pools() ->
     State = get_state(),
     SlotsMapList = tuple_to_list(State#state.slots_maps),
-    [SlotsMap#slots_map.node#node.pool || SlotsMap <- SlotsMapList,
-        SlotsMap#slots_map.node =/= undefined].
+    lists:flatmap(fun(SlotMap) -> get_pools_in_slots_map(SlotMap) end, SlotsMapList).
+
 
 -spec get_all_master_pools() -> [pid()].
 get_all_master_pools() ->
     State = get_state(),
     SlotsMapList = tuple_to_list(State#state.slots_maps),
     [SlotsMap#slots_map.node#node.pool || SlotsMap <- SlotsMapList,
-        SlotsMap#slots_map.node =/= undefined, SlotsMap#slots_map.type == master].
+        SlotsMap#slots_map.node =/= undefined].
 
 %% =============================================================================
 %% @doc Get cluster pool by slot. Optionally, a memoized State can be provided
@@ -85,16 +85,22 @@ get_all_master_pools() ->
     {PoolName::atom() | undefined, Version::integer()}.
 get_pool_by_slot(Slot, State, CommandType) ->
     Index = element(Slot+1,State#state.slots),
-    Cluster =  case {CommandType, State#state.replica_read_flag}  of 
+    MasterSlotMap = element(Index, State#state.slots_maps),
+    ClusterNode =  case {CommandType, State#state.replica_read_flag}  of 
         {read, true} -> 
-            ReadClusters = [Cluster || Cluster <- tuple_to_list(State#state.slots_maps), Cluster#slots_map.index == Index, Cluster#slots_map.type == replica],
-            lists:nth(eredis_cluster_util:get_random_number(length(ReadClusters)), ReadClusters); %% Gets a random element from the read replicas
+            ReadClusters = MasterSlotMap#slots_map.replicas,
+            case ReadClusters of
+                [] ->  
+                    MasterSlotMap#slots_map.node;
+                _ -> 
+                    lists:nth(eredis_cluster_util:get_random_number(length(ReadClusters)), ReadClusters) %% Gets a random element from the read replicas
+            end;
         _ ->
-            hd([Cluster || Cluster <- tuple_to_list(State#state.slots_maps), Cluster#slots_map.index == Index, Cluster#slots_map.type == master])
+            MasterSlotMap#slots_map.node
     end,    
     if
-        Cluster#slots_map.node =/= undefined ->
-            {Cluster#slots_map.node#node.pool, State#state.version};
+        ClusterNode =/= undefined ->
+            {ClusterNode#node.pool, State#state.version};
         true ->
             {undefined, State#state.version}
     end.
@@ -124,7 +130,7 @@ reload_slots_map(State) ->
     ClusterSlots = get_cluster_slots(State#state.init_nodes),
 
     SlotsMaps = parse_cluster_slots(ClusterSlots, State#state.replica_read_flag),
-    ConnectedSlotsMaps = connect_all_slots(SlotsMaps, State#state.replica_read_flag),
+    ConnectedSlotsMaps = connect_all_slots(SlotsMaps),
 
     Slots = create_slots_cache(ConnectedSlotsMaps),
     NewState = State#state{
@@ -179,40 +185,24 @@ parse_cluster_slots([[StartSlot, EndSlot | [[Address, Port | _] | ReplicaSlots]]
             node = #node{
                 address = binary_to_list(Address),
                 port = binary_to_integer(Port)
-            }
+            },
+            replicas = case ReplicaReadsFlag of 
+                true ->  
+                    [#node{address = binary_to_list(AddressR), port = binary_to_integer(PortR)} || [AddressR, PortR | _ ] <- ReplicaSlots];
+                _ -> 
+                    []
+            end
         },
-    ReplicaCluster = case ReplicaReadsFlag of 
-        true ->  
-            parse_replica_slots(ReplicaSlots, Index, {StartSlot, EndSlot}, []);
-        _ -> 
-            []
-    end,
-    parse_cluster_slots(T, Index+1, [SlotsMap | ReplicaCluster ++ Acc], ReplicaReadsFlag);
+    parse_cluster_slots(T, Index+1, [SlotsMap | Acc], ReplicaReadsFlag);
 parse_cluster_slots([], _Index, Acc, _) ->
     lists:reverse(Acc).
-
-parse_replica_slots([[Address, Port | _ ] | Slots], Index, {StartSlot, EndSlot}, Acc) ->
-    ReplicaSlotsMaps = #slots_map{
-        index = Index,
-        type = replica,
-        start_slot = binary_to_integer(StartSlot),
-        end_slot = binary_to_integer(EndSlot),
-        node = #node{
-            address = binary_to_list(Address),
-            port = binary_to_integer(Port)
-        }
-    },
-    parse_replica_slots(Slots, Index, {StartSlot, EndSlot}, [ReplicaSlotsMaps | Acc]);
-
-parse_replica_slots([], _, _, Acc) ->
-    Acc.  
 
 -spec close_connection(#slots_map{}) -> ok.
 close_connection(SlotsMap) ->
     Node = SlotsMap#slots_map.node,
     if
         Node =/= undefined ->
-            try eredis_cluster_pool:stop(Node#node.pool) of
+            try {eredis_cluster_pool:stop(Node#node.pool), lists:foreach(fun(ReplicaNode) -> eredis_cluster_pool:stop(ReplicaNode#node.pool) end, SlotsMap#slots_map.replicas)} of
                 _ ->
                     ok
             catch
@@ -250,20 +240,15 @@ create_slots_cache(SlotsMaps) ->
   SortedSlotsCache = lists:sort(SlotsCacheF),
   [ Index || {_,Index} <- SortedSlotsCache].
 
--spec connect_all_slots([#slots_map{}], ReplicaReadsFlag::boolean()) -> [integer()].
-connect_all_slots(SlotsMapList, false) ->
-    [SlotsMap#slots_map{node=connect_node(SlotsMap#slots_map.node)}
-        || SlotsMap <- SlotsMapList];
-    
-connect_all_slots(SlotsMapList, true) ->
-    ConnectedSlotsMaps = [SlotsMap#slots_map{node=connect_node(SlotsMap#slots_map.node)}
+-spec connect_all_slots([#slots_map{}]) -> [integer()].
+connect_all_slots(SlotsMapList) ->
+    ConnectedSlotsMaps = [SlotsMap#slots_map{node=connect_node(SlotsMap#slots_map.node), replicas=[connect_node(Replica) || Replica <- SlotsMap#slots_map.replicas]}
         || SlotsMap <- SlotsMapList],
     lists:foreach(
         fun(ConnectedSlot) -> 
-            Node = ConnectedSlot#slots_map.node,
-            Pool = Node#node.pool,
+            Replicas = ConnectedSlot#slots_map.replicas,
             Command = ["READONLY"],
-            ok = eredis_cluster_pool:transaction_all(Pool, Command)
+            [eredis_cluster_pool:transaction_all(Replica#node.pool, Command) || Replica <- Replicas]
         end,
         ConnectedSlotsMaps
     ),
@@ -284,6 +269,11 @@ connect_(InitNodes, ReplicaReadsFlag) ->
     },
     reload_slots_map(State).
 
+get_pools_in_slots_map(SlotsMap) when SlotsMap#slots_map.node =/= undefined ->
+    [SlotsMap#slots_map.node#node.pool] ++  [Replica#node.pool || Replica <- SlotsMap#slots_map.replicas];
+
+get_pools_in_slots_map(_) ->
+[].
 %% gen_server.
 
 init(_Args) ->
