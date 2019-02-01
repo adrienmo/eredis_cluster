@@ -24,7 +24,9 @@
     start_slot :: integer(),
     end_slot :: integer(),
     index :: integer(),
-    node :: #node{}
+    type :: atom(),
+    node :: #node{},
+    replicas :: [#node{}]
 }).
 
 -define(REDIS_CLUSTER_HASH_SLOTS, 16384).
