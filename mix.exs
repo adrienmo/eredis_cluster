@@ -1,7 +1,7 @@
 defmodule EredisCluster.Mixfile do
   use Mix.Project
 
-  @version File.read!("VERSION") |> String.trim
+  @version String.trim(File.read!("VERSION"))
 
   def project do
     [app: :eredis_cluster,
@@ -18,9 +18,9 @@ defmodule EredisCluster.Mixfile do
   end
 
   defp deps do
-    [{:poolboy, "~> 1.5.1"},
-      {:eredis, "~> 1.1.0"},
-      {:ex_doc, ">= 0.0.0", only: :dev}]
+    [{:poolboy, "1.5.2"},
+      {:eredis, "~> 1.2.0"},
+      {:ex_doc, "~> 0.19.1"}]
   end
 
   defp package do

@@ -1,6 +1,6 @@
 ERL=erl
 BEAMDIR=./deps/*/ebin ./ebin
-REBAR=./rebar3
+REBAR ?= rebar3
 PATH := ./redis-git/src:${PATH}
 
 # CLUSTER REDIS NODES

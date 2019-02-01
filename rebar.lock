@@ -1,0 +1,8 @@
+{"1.1.0",
+[{<<"eredis">>,{pkg,<<"eredis">>,<<"1.2.0">>},0},
+ {<<"poolboy">>,{pkg,<<"poolboy">>,<<"1.5.2">>},0}]}.
+[
+{pkg_hash,[
+ {<<"eredis">>, <<"0B8E9CFC2C00FA1374CD107EA63B49BE08D933DF2CF175E6A89B73DD9C380DE4">>},
+ {<<"poolboy">>, <<"392B007A1693A64540CEAD79830443ABF5762F5D30CF50BC95CB2C1AAAFA006B">>}]}
+].
