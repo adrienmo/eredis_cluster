@@ -195,7 +195,7 @@ handle_transaction_result(Result, Version) ->
         % mapping.
         {error, no_connection} ->
             logger:error("eredis_cluster:handle_transaction_result <--> {error, no_connection}",[]),
-            eredis_cluster_monitor:refresh_mapping(Version),
+            %%eredis_cluster_monitor:refresh_mapping(Version),
             retry;
 
         % If the tcp connection is closed (connection timeout), the redis worker
@@ -204,6 +204,10 @@ handle_transaction_result(Result, Version) ->
         % case
         {error, tcp_closed} ->
             logger:error("eredis_cluster:handle_transaction_result <--> {error, no_connection}",[]),
+            retry;
+
+        {error, retry} ->
+            logger:error("eredis_cluster:handle_transaction_result <--> {error, retry}",[]),
             retry;
 
         % Redis explicitly say our slot mapping is incorrect, we need to refresh
