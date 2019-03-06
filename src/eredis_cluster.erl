@@ -194,6 +194,7 @@ handle_transaction_result(Result, Version) ->
        % If we detect a node went down, we should probably refresh the slot
         % mapping.
         {error, no_connection} ->
+            logger:error("eredis_cluster:handle_transaction_result <--> {error, no_connection}",[]),
             eredis_cluster_monitor:refresh_mapping(Version),
             retry;
 
@@ -202,11 +203,13 @@ handle_transaction_result(Result, Version) ->
         % the next request. We don't need to refresh the slot mapping in this
         % case
         {error, tcp_closed} ->
+            logger:error("eredis_cluster:handle_transaction_result <--> {error, no_connection}",[]),
             retry;
 
         % Redis explicitly say our slot mapping is incorrect, we need to refresh
         % it
         {error, <<"MOVED ", _/binary>>} ->
+            logger:error("eredis_cluster:handle_transaction_result <--> {error, MOVED} Result = ~",[Result]),
             eredis_cluster_monitor:refresh_mapping(Version),
             retry;
 
