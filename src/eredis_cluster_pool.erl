@@ -5,6 +5,7 @@
 -export([create/2]).
 -export([stop/1]).
 -export([transaction/2]).
+-export([get_worker/1]).
 
 %% Supervisor
 -export([start_link/0]).
@@ -31,11 +32,13 @@ create(Host, Port) ->
             %% Parametros del workers_pool
             PoolArgs = [PoolName,[{workers,Size},{worker,Worker}]],
 
-            %% Creo un hijo de tipo worker_pool_sup
+            %% Creo un hijo de tipo wpool
 
-            ChildSpec = {wpool_pool,
-                            {wpool_pool, start_link, PoolArgs},
-                            permanent, 5000, supervisor, [dynamic]},
+            ChildSpec = #{ id => PoolName,
+                           start => {wpool, start_pool, PoolArgs},
+                           restart => temporary,
+                           type => supervisor,
+                           modules => [wpool]},
 
             {Result, _} = supervisor:start_child(?MODULE,ChildSpec),
         	{Result, PoolName};
@@ -52,6 +55,9 @@ transaction(PoolName, Transaction) ->
         exit:_ ->
             {error, no_connection}
     end.
+
+get_worker(PoolName) ->
+    wpool_pool:next_worker(PoolName).
 
 -spec stop(PoolName::atom()) -> ok.
 stop(PoolName) ->
@@ -70,4 +76,5 @@ start_link() ->
 -spec init([])
 	-> {ok, {{supervisor:strategy(), 1, 5}, [supervisor:child_spec()]}}.
 init([]) ->
+    wpool:start(),
 	{ok, {{one_for_one, 1, 5}, []}}.
