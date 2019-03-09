@@ -21,21 +21,21 @@ create(Host, Port) ->
         undefined ->
             DataBase = application:get_env(eredis_cluster, database, 0),
             Password = application:get_env(eredis_cluster, password, ""),
-            WorkerArgs = [{host, Host},
-                          {port, Port},
-                          {database, DataBase},
-                          {password, Password}
-                         ],
+
+            WorkerArgs = [Host, Port, DataBase, Password, 100, 5000],
 
         	Size = application:get_env(eredis_cluster, pool_size, 10),
-        	MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
 
-            PoolArgs = [{name, {local, PoolName}},
-                        {worker_module, eredis_cluster_pool_worker},
-                        {size, Size},
-                        {max_overflow, MaxOverflow}],
+            Worker = {eredis_client, WorkerArgs},
 
-            ChildSpec = poolboy:child_spec(PoolName, PoolArgs, WorkerArgs),
+            %% Parametros del workers_pool
+            PoolArgs = [PoolName,[{workers,Size},{worker,Worker}]],
+
+            %% Creo un hijo de tipo worker_pool_sup
+
+            ChildSpec = {wpool_pool,
+                            {wpool_pool, start_link, PoolArgs},
+                            permanent, 5000, supervisor, [dynamic]},
 
             {Result, _} = supervisor:start_child(?MODULE,ChildSpec),
         	{Result, PoolName};
