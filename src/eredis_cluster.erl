@@ -102,8 +102,11 @@ qmn(Commands, Counter) ->
     end.
 
 qmn2([{Pool, PoolCommands} | T1], [{Pool, Mapping} | T2], Acc, Version) ->
-    Transaction = fun(Worker) -> qw(Worker, PoolCommands) end,
-    Result = eredis_cluster_pool:transaction(Pool, Transaction),
+    Worker = eredis_cluster_pool:get_worker(Pool),
+    WorkerPID = whereis(Worker),
+
+    Result = eredis:q(WorkerPID,PoolCommands,5000),
+
     case handle_transaction_result(Result, Version, check_pipeline_result) of
         retry -> retry;
         Res -> 
