@@ -172,20 +172,21 @@ query(_, undefined) ->
     {error, invalid_cluster_command};
 query(Command, PoolKey) ->
     Slot = get_key_slot(PoolKey),
-    Transaction = fun(Worker) -> qw(Worker, Command) end,
-    query(Transaction, Slot, 0).
+    query(Command, Slot, 0).
 
 query(_, _, ?REDIS_CLUSTER_REQUEST_TTL) ->
     {error, no_connection};
-query(Transaction, Slot, Counter) ->
+query(Command, Slot, Counter) ->
     %% Throttle retries
     throttle_retries(Counter),
 
     {Pool, Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+    Worker = eredis_cluster_pool:get_worker(Pool),
+    WorkerPID = whereis(Worker),
 
-    Result = eredis_cluster_pool:transaction(Pool, Transaction),
-    case handle_transaction_result(Result, Version) of 
-        retry -> query(Transaction, Slot, Counter + 1);
+    Result = eredis:q(WorkerPID,Command,5000),
+    case handle_transaction_result(Result, Version) of
+        retry -> query(Command, Slot, Counter + 1);
         Result -> Result
     end.
 

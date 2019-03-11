@@ -1,6 +1,10 @@
 {"1.1.0",
 [{<<"eredis">>,{pkg,<<"eredis">>,<<"1.2.0">>},0},
- {<<"poolboy">>,{pkg,<<"poolboy">>,<<"1.5.2">>},0}]}.
+ {<<"poolboy">>,{pkg,<<"poolboy">>,<<"1.5.2">>},0},
+ {<<"worker_pool">>,
+  {git,"https://github.com/inaka/worker_pool",
+       {ref,"fc4ae9799588e7922a9d5411dfff728dd9688a07"}},
+  0}]}.
 [
 {pkg_hash,[
  {<<"eredis">>, <<"0B8E9CFC2C00FA1374CD107EA63B49BE08D933DF2CF175E6A89B73DD9C380DE4">>},

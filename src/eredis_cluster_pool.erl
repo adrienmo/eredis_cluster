@@ -5,6 +5,7 @@
 -export([create/2]).
 -export([stop/1]).
 -export([transaction/2]).
+-export([get_worker/1]).
 
 %% Supervisor
 -export([start_link/0]).
@@ -21,21 +22,23 @@ create(Host, Port) ->
         undefined ->
             DataBase = application:get_env(eredis_cluster, database, 0),
             Password = application:get_env(eredis_cluster, password, ""),
-            WorkerArgs = [{host, Host},
-                          {port, Port},
-                          {database, DataBase},
-                          {password, Password}
-                         ],
+
+            WorkerArgs = [Host, Port, DataBase, Password, 100, 5000],
 
         	Size = application:get_env(eredis_cluster, pool_size, 10),
-        	MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
 
-            PoolArgs = [{name, {local, PoolName}},
-                        {worker_module, eredis_cluster_pool_worker},
-                        {size, Size},
-                        {max_overflow, MaxOverflow}],
+            Worker = {eredis_client, WorkerArgs},
 
-            ChildSpec = poolboy:child_spec(PoolName, PoolArgs, WorkerArgs),
+            %% Parametros del workers_pool
+            PoolArgs = [PoolName,[{workers,Size},{worker,Worker}]],
+
+            %% Creo un hijo de tipo wpool
+
+            ChildSpec = #{ id => PoolName,
+                           start => {wpool, start_pool, PoolArgs},
+                           restart => temporary,
+                           type => supervisor,
+                           modules => [wpool]},
 
             {Result, _} = supervisor:start_child(?MODULE,ChildSpec),
         	{Result, PoolName};
@@ -52,6 +55,9 @@ transaction(PoolName, Transaction) ->
         exit:_ ->
             {error, no_connection}
     end.
+
+get_worker(PoolName) ->
+    wpool_pool:next_worker(PoolName).
 
 -spec stop(PoolName::atom()) -> ok.
 stop(PoolName) ->
@@ -70,4 +76,5 @@ start_link() ->
 -spec init([])
 	-> {ok, {{supervisor:strategy(), 1, 5}, [supervisor:child_spec()]}}.
 init([]) ->
+    wpool:start(),
 	{ok, {{one_for_one, 1, 5}, []}}.
