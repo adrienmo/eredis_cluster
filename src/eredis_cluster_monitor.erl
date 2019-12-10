@@ -3,7 +3,7 @@
 
 %% API.
 -export([start_link/0]).
--export([connect/1]).
+-export([connect/1, close_connection_with_pools/1]).
 -export([refresh_mapping/1]).
 -export([get_state/0, get_state_version/1]).
 -export([get_pool_by_slot/1, get_pool_by_slot/2]).
@@ -33,6 +33,9 @@ start_link() ->
 
 connect(InitServers) ->
     gen_server:call(?MODULE,{connect,InitServers}).
+
+close_connection_with_pools(PoolNodes) ->
+    gen_server:call(?MODULE,{close_connection,PoolNodes}).
 
 refresh_mapping(Version) ->
     gen_server:call(?MODULE,{reload_slots_map,Version}).
@@ -102,6 +105,24 @@ reload_slots_map(State) ->
 
     NewState.
 
+%%%------------------------------------------------------------
+-spec close_connection_with_nodes(SlotsMap::#slots_map{},
+                                  Pools :: [atom()]) -> #slots_map{}.
+%%%
+%%% Closes the connection related to specified Pool node.
+%%%------------------------------------------------------------
+close_connection_with_nodes(SlotsMaps, Pools) ->
+    lists:foldl(fun(Map, AccMap) ->
+                          case lists:member(Map#slots_map.node#node.pool,
+                                            Pools) of
+                              true ->
+                                  close_connection(Map),
+                                  AccMap;
+                              false ->
+                                  [Map|AccMap]
+                          end
+                  end,[], SlotsMaps).
+
 -spec get_cluster_slots([#node{}]) -> [[bitstring() | [bitstring()]]].
 get_cluster_slots([]) ->
     throw({error,cannot_connect_to_cluster});
@@ -148,8 +169,6 @@ parse_cluster_slots([[StartSlot, EndSlot | [[Address, Port | _] | _]] | T], Inde
     parse_cluster_slots(T, Index+1, [SlotsMap | Acc]);
 parse_cluster_slots([], _Index, Acc) ->
     lists:reverse(Acc).
-
-
 
 -spec close_connection(#slots_map{}) -> ok.
 close_connection(SlotsMap) ->
@@ -212,6 +231,29 @@ connect_(InitNodes) ->
 
     reload_slots_map(State).
 
+-spec close_connection_(PoolNodes :: term()) -> #state{}.
+close_connection_([]) ->
+    case get_state() of
+        undefined ->
+            #state{};
+        State ->
+            State
+    end;
+close_connection_(PoolNodes) ->
+    State = case get_state() of
+                undefined ->
+                    #state{};
+                S ->
+                    S
+            end,
+    case State#state.slots_maps of
+         undefined ->
+             State;
+         M ->
+             Map = tuple_to_list(M),
+             close_connection_with_nodes(Map, PoolNodes)
+     end.
+
 %% gen_server.
 
 init(_Args) ->
@@ -225,6 +267,8 @@ handle_call({reload_slots_map,_}, _From, State) ->
     {reply, ok, State};
 handle_call({connect, InitServers}, _From, _State) ->
     {reply, ok, connect_(InitServers)};
+handle_call({close_connection, PoolNodes}, _From, _State) ->
+    {reply, ok, close_connection_(PoolNodes)};
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
 

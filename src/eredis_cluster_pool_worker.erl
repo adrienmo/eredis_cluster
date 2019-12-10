@@ -4,7 +4,7 @@
 
 %% API.
 -export([start_link/1]).
--export([query/2]).
+-export([query/2, query_nor/2]).
 
 %% gen_server.
 -export([init/1]).
@@ -41,6 +41,9 @@ init(Args) ->
 query(Worker, Commands) ->
     gen_server:call(Worker, {'query', Commands}).
 
+query_nor(Worker, Commands) ->
+    gen_server:cast(Worker, {'query_nor', Commands}).
+
 handle_call({'query', _}, _From, #state{conn = undefined} = State) ->
     {reply, {error, no_connection}, State};
 handle_call({'query', [[X|_]|_] = Commands}, _From, #state{conn = Conn} = State)
@@ -51,6 +54,9 @@ handle_call({'query', Command}, _From, #state{conn = Conn} = State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({'query_nor', Command}, #state{conn = Conn} = State) ->
+    eredis:q_noreply(Conn, Command),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 

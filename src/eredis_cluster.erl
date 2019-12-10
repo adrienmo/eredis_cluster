@@ -6,10 +6,12 @@
 -export([stop/1]).
 
 % API.
--export([start/0, stop/0, connect/1]). % Application Management.
+-export([start/0, stop/0, connect/1, close_connection/1]). % Application Management.
 
 % Generic redis call
--export([q/1, qp/1, qw/2, qk/2, qa/1, qmn/1, transaction/1, transaction/2]).
+-export([q/1, q_nor/1, qp/1, qw/2, qk/2, qa/1, qmn/1, transaction/1, transaction/2]).
+
+-export([get_key_slot/1]).
 
 % Specific redis command implementation
 -export([flushdb/0]).
@@ -47,6 +49,14 @@ stop() ->
 -spec connect(InitServers::term()) -> Result::term().
 connect(InitServers) ->
     eredis_cluster_monitor:connect(InitServers).
+
+%% =============================================================================
+%% @doc Close the connections with a set of nodes.
+%% @end
+%% =============================================================================
+-spec close_connection(PoolNodes::term()) -> Result::term().
+close_connection(PoolNodes) ->
+    eredis_cluster_monitor:close_connection_with_pools(PoolNodes).
 
 %% =============================================================================
 %% @doc Wrapper function to execute a pipeline command as a transaction Command
@@ -160,6 +170,10 @@ qp(Commands) -> q(Commands).
 q(Command) ->
     query(Command).
 
+%% Async variant of simple or pipelined command:
+q_nor(Command) ->
+    query_nor(Command).
+
 -spec qk(redis_command(), bitstring()) -> redis_result().
 qk(Command, PoolKey) ->
     query(Command, PoolKey).
@@ -168,12 +182,23 @@ query(Command) ->
     PoolKey = get_key_from_command(Command),
     query(Command, PoolKey).
 
+query_nor(Command) ->
+    PoolKey = get_key_from_command(Command),
+    query_nor(Command, PoolKey).
+
 query(_, undefined) ->
     {error, invalid_cluster_command};
 query(Command, PoolKey) ->
     Slot = get_key_slot(PoolKey),
     Transaction = fun(Worker) -> qw(Worker, Command) end,
     query(Transaction, Slot, 0).
+
+query_nor(_, undefined) ->
+    {error, invalid_cluster_command};
+query_nor(Command, PoolKey) ->
+    Slot = get_key_slot(PoolKey),
+    Transaction = fun(Worker) -> qw_nor(Worker, Command) end,
+    query_nor_h(Transaction, Slot).
 
 query(_, _, ?REDIS_CLUSTER_REQUEST_TTL) ->
     {error, no_connection};
@@ -190,9 +215,9 @@ query(Transaction, Slot, Counter) ->
     end.
 
 handle_transaction_result(Result, Version) ->
-    case Result of 
+    case Result of
        % If we detect a node went down, we should probably refresh the slot
-        % mapping.
+       % mapping.
         {error, no_connection} ->
             eredis_cluster_monitor:refresh_mapping(Version),
             retry;
@@ -228,6 +253,11 @@ handle_transaction_result(Result, Version, check_pipeline_result) ->
            end;
        Payload -> Payload
     end.
+
+query_nor_h(Transaction, Slot) ->
+    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+    eredis_cluster_pool:transaction(Pool, Transaction),
+    ok.
 
 -spec throttle_retries(integer()) -> ok.
 throttle_retries(0) -> ok;
@@ -298,7 +328,7 @@ optimistic_locking_transaction(WatchedKey, GetCommand, UpdateFunction) ->
         RedisResult = qw(Worker, [["MULTI"]] ++ UpdateCommand ++ [["EXEC"]]),
         {lists:last(RedisResult), Result}
     end,
-	case transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL) of
+    case transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL) of
         {{ok, undefined}, _} ->
             {error, resource_busy};
         {{ok, TransactionResult}, UpdateResult} ->
@@ -350,6 +380,10 @@ qa(Command) ->
 -spec qw(Worker::pid(), redis_command()) -> redis_result().
 qw(Worker, Command) ->
     eredis_cluster_pool_worker:query(Worker, Command).
+
+-spec qw_nor(Worker::pid(), redis_command()) -> redis_result().
+qw_nor(Worker, Command) ->
+    eredis_cluster_pool_worker:query_nor(Worker, Command).
 
 %% =============================================================================
 %% @doc Perform flushdb command on each node of the redis cluster

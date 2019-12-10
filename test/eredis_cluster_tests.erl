@@ -17,6 +17,14 @@ basic_test_() ->
             end
             },
 
+	    { "get and set async",
+            fun() ->
+                ?assertEqual(ok, eredis_cluster:q_nor(["SET", "key", "value"])),
+                ?assertEqual({ok, <<"value">>}, eredis_cluster:q(["GET","key"])),
+                ?assertEqual({ok, undefined}, eredis_cluster:q(["GET","nonexists"]))
+            end
+            },
+
             { "binary",
             fun() ->
                 ?assertEqual({ok, <<"OK">>}, eredis_cluster:q([<<"SET">>, <<"key_binary">>, <<"value_binary">>])),
@@ -162,6 +170,18 @@ basic_test_() ->
                 ScriptHash = << << if N >= 10 -> N -10 + $a; true -> N + $0 end >> || <<N:4>> <= crypto:hash(sha, Script) >>,
                 eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
+            end
+            },
+
+	    { "close connection",
+            fun () ->
+                Key = "close:{1}:return",
+                eredis_cluster:q_nor(["set", Key, "test"]),
+
+                Pool = element(1, eredis_cluster_monitor:get_pool_by_slot( eredis_cluster:get_key_slot(Key))),
+                ok = eredis_cluster:close_connection([Pool]),
+
+                ?assertEqual({error,no_connection}, eredis_cluster:q(["get", Key]))
             end
             }
 
