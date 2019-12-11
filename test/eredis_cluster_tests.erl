@@ -163,6 +163,18 @@ basic_test_() ->
                 eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
             end
+            },
+
+            { "get cluster info from each pools",
+            fun () ->
+                     ?assertMatch([{'127.0.0.1#30001', {ok, _}},
+                                   {'127.0.0.1#30002', {ok, _}},
+                                   {'127.0.0.1#30003', {ok, _}}],
+                                  lists:keysort(1, eredis_cluster:qa2(["cluster", "slots"]))),
+                     QA2Res = lists:keysort(1,eredis_cluster:qa2(["get", "qrs"])),
+                     ?assertMatch({error,_},
+                                  proplists:lookup(error, [PR || {_P, PR} <- QA2Res]))
+            end
             }
 
       ]
