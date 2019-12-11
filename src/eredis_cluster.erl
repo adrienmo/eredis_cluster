@@ -11,8 +11,10 @@
 % Generic redis call
 -export([q/1, qp/1, qw/2, qk/2, qa/1, qmn/1, transaction/1, transaction/2]).
 
+-export([get_key_slot/1]).
+
 % Specific redis command implementation
--export([flushdb/0]).
+-export([flushdb/0, load_script/1, scan/5]).
 
  % Helper functions
 -export([update_key/2]).
@@ -170,6 +172,20 @@ query(Command) ->
 
 query(_, undefined) ->
     {error, invalid_cluster_command};
+%% Load LUA script to all instances:
+query(Command , load_script) ->
+    case qa(Command) of
+        Result when is_list(Result) ->
+            case proplists:lookup(error,Result) of
+                none ->
+                    [{ok,SHA1}|_] = Result,
+                    {ok, SHA1};
+                Error ->
+                    Error
+            end;
+        Result ->
+            Result
+    end;
 query(Command, PoolKey) ->
     Slot = get_key_slot(PoolKey),
     Transaction = fun(Worker) -> qw(Worker, Command) end,
@@ -190,9 +206,9 @@ query(Transaction, Slot, Counter) ->
     end.
 
 handle_transaction_result(Result, Version) ->
-    case Result of 
+    case Result of
        % If we detect a node went down, we should probably refresh the slot
-        % mapping.
+       % mapping.
         {error, no_connection} ->
             eredis_cluster_monitor:refresh_mapping(Version),
             retry;
@@ -298,7 +314,7 @@ optimistic_locking_transaction(WatchedKey, GetCommand, UpdateFunction) ->
         RedisResult = qw(Worker, [["MULTI"]] ++ UpdateCommand ++ [["EXEC"]]),
         {lists:last(RedisResult), Result}
     end,
-	case transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL) of
+    case transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL) of
         {{ok, undefined}, _} ->
             {error, resource_busy};
         {{ok, TransactionResult}, UpdateResult} ->
@@ -363,6 +379,39 @@ flushdb() ->
             ok;
         Error ->
             Error
+    end.
+
+%% =============================================================================
+%% @doc Load LUA script to all master nodes in the Redis cluster.
+%% @end
+%% =============================================================================
+-spec load_script(string()) -> redis_result().
+load_script(Script) ->
+    Command = ["SCRIPT", "LOAD", Script],
+    query(Command , load_script).
+
+%% =============================================================================
+%% @doc Perform scan command on a specified node in the Redis cluster.
+%% @end
+%% =============================================================================
+-spec scan(Pool::atom(), ScanCursor::integer(), ScanPattern::string(),
+           ScanCount::integer(), RetryCounter::integer())
+          -> redis_result() | {error, Reason::bitstring()}.
+scan(_, _, _, _, ?REDIS_CLUSTER_REQUEST_TTL) ->
+    {error, no_connection};
+scan(Pool, ScanCursor, ScanPattern, ScanCount, RetryCounter) when is_list(ScanPattern) ->
+    Command = ["scan", ScanCursor, "match", ScanPattern, "count", ScanCount],
+    Transaction = fun(Worker) -> qw(Worker, Command) end,
+
+    throttle_retries(RetryCounter),
+    Result = eredis_cluster_pool:transaction(Pool, Transaction),
+
+    State = eredis_cluster_monitor:get_state(),
+    case handle_transaction_result(Result,
+                                   eredis_cluster_monitor:get_state_version(State))
+        of
+        retry -> scan(Pool, ScanCursor, ScanPattern, ScanCount, RetryCounter + 1);
+        Result -> Result
     end.
 
 %% =============================================================================
