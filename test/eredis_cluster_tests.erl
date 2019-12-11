@@ -163,8 +163,15 @@ basic_test_() ->
                 eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
             end
-            }
+            },
 
+            { "get info from all pools",
+            fun () ->
+                ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"])),
+                ?assertEqual(none, proplists:lookup(error,eredis_cluster:qa(["cluster", "slots"]))),
+                ?assertMatch({error,_}, proplists:lookup(error,eredis_cluster:qa(["get", "qrs"])))
+            end
+            }
       ]
     }
 }.
