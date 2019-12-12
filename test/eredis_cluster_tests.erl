@@ -211,7 +211,7 @@ basic_test_() ->
                       ({error, <<"ASK ", _/binary>>}) -> true;
                       (_) -> false
                    end,
-                Verdict = case lists:any(Fun, Result) of
+                Verdict = case lists:all(Fun, Result) of
                     false -> Result;
                     true -> true
                 end,
