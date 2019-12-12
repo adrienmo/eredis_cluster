@@ -5,9 +5,10 @@
 -export([start_link/0]).
 -export([connect/1]).
 -export([refresh_mapping/1]).
--export([get_state/0, get_state_version/1]).
+-export([get_state/0, get_state_version/1, update_state_init_nodes/1]).
 -export([get_pool_by_slot/1, get_pool_by_slot/2]).
 -export([get_all_pools/0]).
+-export([get_cluster_slots/0, get_cluster_nodes/0]).
 
 %% gen_server.
 -export([init/1]).
@@ -20,10 +21,10 @@
 %% Type definition.
 -include("eredis_cluster.hrl").
 -record(state, {
-    init_nodes :: [#node{}],
-    slots :: tuple(), %% whose elements are integer indexes into slots_maps
-    slots_maps :: tuple(), %% whose elements are #slots_map{}
-    version :: integer()
+    init_nodes = [] :: [#node{}],
+    slots = {} :: tuple(), %% whose elements are integer indexes into slots_maps
+    slots_maps = {} :: tuple(), %% whose elements are #slots_map{}
+    version = 0 :: integer()
 }).
 
 %% API.
@@ -37,6 +38,10 @@ connect(InitServers) ->
 refresh_mapping(Version) ->
     gen_server:call(?MODULE,{reload_slots_map,Version}).
 
+% Used for testing:
+update_state_init_nodes(Nodes) ->
+    gen_server:call(?MODULE,{update_state_init_nodes, Nodes}).
+
 %% =============================================================================
 %% @doc Given a slot return the link (Redis instance) to the mapped
 %% node.
@@ -47,6 +52,12 @@ refresh_mapping(Version) ->
 get_state() ->
     [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
     State.
+
+update_state_init_nodes_(Nodes) ->
+    State = get_state(),
+    NewState = State#state{init_nodes = Nodes},
+    true = ets:insert(?MODULE, [{cluster_state, NewState}]),
+    NewState.
 
 get_state_version(State) ->
     State#state.version.
@@ -102,13 +113,57 @@ reload_slots_map(State) ->
 
     NewState.
 
+
+-spec get_cluster_slots() -> [[bitstring() | [bitstring()]]].
+get_cluster_slots() ->
+    State = get_state(),
+    get_cluster_slots(State#state.init_nodes).
+
 -spec get_cluster_slots([#node{}]) -> [[bitstring() | [bitstring()]]].
-get_cluster_slots([]) ->
-    throw({error,cannot_connect_to_cluster});
-get_cluster_slots([Node|T]) ->
+get_cluster_slots(InitNodes) ->
+    get_cluster_slots(InitNodes, []).
+
+get_cluster_slots([], ErrorList) ->
+    throw({reply, {error, {cannot_connect_to_cluster, ErrorList}}, #state{}});
+get_cluster_slots([Node|T], ErrorList) ->
     case safe_eredis_start_link(Node#node.address, Node#node.port) of
         {ok,Connection} ->
           case eredis:q(Connection, ["CLUSTER", "SLOTS"]) of
+                {error,<<"ERR unknown command 'CLUSTER'">>} ->
+                    get_cluster_slots_from_single_node(Node);
+                {error,<<"ERR This instance has cluster support disabled">>} ->
+                    get_cluster_slots_from_single_node(Node);
+                {ok, ClusterInfo} ->
+                    case ClusterInfo of
+                        [] when T == [] ->
+                            get_cluster_slots_from_single_node(Node);
+                        _ ->
+                            eredis:stop(Connection),
+                            ClusterInfo
+                    end;
+                Reason ->
+                    eredis:stop(Connection),
+                    get_cluster_slots(T, [{Node, Reason} | ErrorList])
+            end;
+        Reason ->
+            get_cluster_slots(T, [{Node, Reason} | ErrorList])
+    end.
+
+-spec get_cluster_nodes() -> [[bitstring() | [bitstring()]]].
+get_cluster_nodes() ->
+    State = get_state(),
+    get_cluster_nodes(State#state.init_nodes).
+
+-spec get_cluster_nodes([#node{}]) -> [[bitstring() | [bitstring()]]].
+get_cluster_nodes(InitNodes) ->
+    get_cluster_nodes(InitNodes, []).
+
+get_cluster_nodes([], ErrorList) ->
+    throw({reply, {error, {cannot_get_cluster_nodes, ErrorList}}, #state{}});
+get_cluster_nodes([Node|T], ErrorList) ->
+    case safe_eredis_start_link(Node#node.address, Node#node.port) of
+        {ok,Connection} ->
+          case eredis:q(Connection, ["CLUSTER", "NODES"]) of
             {error,<<"ERR unknown command 'CLUSTER'">>} ->
                 get_cluster_slots_from_single_node(Node);
             {error,<<"ERR This instance has cluster support disabled">>} ->
@@ -116,12 +171,12 @@ get_cluster_slots([Node|T]) ->
             {ok, ClusterInfo} ->
                 eredis:stop(Connection),
                 ClusterInfo;
-            _ ->
+            Reason ->
                 eredis:stop(Connection),
-                get_cluster_slots(T)
-        end;
-        _ ->
-            get_cluster_slots(T)
+                get_cluster_nodes(T, [{Node, Reason} | ErrorList])
+          end;
+        Reason ->
+            get_cluster_nodes(T, [{Node, Reason} | ErrorList])
   end.
 
 -spec get_cluster_slots_from_single_node(#node{}) ->
@@ -225,6 +280,8 @@ handle_call({reload_slots_map,_}, _From, State) ->
     {reply, ok, State};
 handle_call({connect, InitServers}, _From, _State) ->
     {reply, ok, connect_(InitServers)};
+handle_call({update_state_init_nodes, Nodes}, _From, _State) ->
+    {reply, ok, update_state_init_nodes_(Nodes)};
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
 
