@@ -5,7 +5,7 @@
 -export([start_link/0]).
 -export([connect/1]).
 -export([refresh_mapping/1]).
--export([get_state/0, get_state_version/1]).
+-export([get_state/0, get_state_version/1, get_state_version/0]).
 -export([get_pool_by_slot/1, get_pool_by_slot/2]).
 -export([get_all_pools/0]).
 
@@ -20,10 +20,10 @@
 %% Type definition.
 -include("eredis_cluster.hrl").
 -record(state, {
-    init_nodes :: [#node{}],
-    slots :: tuple(), %% whose elements are integer indexes into slots_maps
-    slots_maps :: tuple(), %% whose elements are #slots_map{}
-    version :: integer()
+    init_nodes = [] :: [#node{}],
+    slots = {} :: tuple(), %% whose elements are integer indexes into slots_maps
+    slots_maps = {} :: tuple(), %% whose elements are #slots_map{}
+    version = 0 :: integer()
 }).
 
 %% API.
@@ -45,18 +45,32 @@ refresh_mapping(Version) ->
 
 -spec get_state() -> #state{}.
 get_state() ->
-    [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
-    State.
+    case ets:lookup(?MODULE, cluster_state) of
+        [{cluster_state, S}] ->
+            S;
+        [] ->
+            #state{}
+    end.
 
 get_state_version(State) ->
+    State#state.version.
+
+-spec get_state_version() -> integer().
+get_state_version() ->
+    State = get_state(),
     State#state.version.
 
 -spec get_all_pools() -> [pid()].
 get_all_pools() ->
     State = get_state(),
-    SlotsMapList = tuple_to_list(State#state.slots_maps),
-    [SlotsMap#slots_map.node#node.pool || SlotsMap <- SlotsMapList,
-        SlotsMap#slots_map.node =/= undefined].
+    case State#state.slots_maps of
+        undefined ->
+            [];
+        _ ->
+            SlotsMapList = tuple_to_list(State#state.slots_maps),
+            lists:usort([SlotsMap#slots_map.node#node.pool || SlotsMap <- SlotsMapList,
+                         SlotsMap#slots_map.node =/= undefined])
+    end.
 
 %% =============================================================================
 %% @doc Get cluster pool by slot. Optionally, a memoized State can be provided
@@ -65,13 +79,21 @@ get_all_pools() ->
 %% =============================================================================
 -spec get_pool_by_slot(Slot::integer(), State::#state{}) ->
     {PoolName::atom() | undefined, Version::integer()}.
-get_pool_by_slot(Slot, State) -> 
-    Index = element(Slot+1,State#state.slots),
-    Cluster = element(Index,State#state.slots_maps),
-    if
-        Cluster#slots_map.node =/= undefined ->
-            {Cluster#slots_map.node#node.pool, State#state.version};
-        true ->
+
+get_pool_by_slot(_Slot, State) when State#state.slots == undefined ->
+    {undefined, State#state.version};
+get_pool_by_slot(Slot, State) ->
+    try
+        Index = element(Slot+1,State#state.slots),
+        Cluster = element(Index,State#state.slots_maps),
+        if
+            Cluster#slots_map.node =/= undefined ->
+                {Cluster#slots_map.node#node.pool, State#state.version};
+            true ->
+                {undefined, State#state.version}
+        end
+    catch
+        _:_ ->
             {undefined, State#state.version}
     end.
 
