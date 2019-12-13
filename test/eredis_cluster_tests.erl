@@ -165,13 +165,11 @@ basic_test_() ->
             end
             },
 
-            { "get cluster info from each pools",
+            { "get cluster info with pool specified in response",
             fun () ->
-                     ?assertMatch([{'127.0.0.1#30001', {ok, _}},
-                                   {'127.0.0.1#30002', {ok, _}},
-                                   {'127.0.0.1#30003', {ok, _}}],
-                                  lists:keysort(1, eredis_cluster:qa2(["cluster", "slots"]))),
-                     QA2Res = lists:keysort(1,eredis_cluster:qa2(["get", "qrs"])),
+                     QA2SR = eredis_cluster:qa2(["cluster", "slots"]),
+                     ?assertMatch({_Pool, {ok, _}}, lists:last(QA2SR)),
+                     QA2Res = eredis_cluster:qa2(["get", "qrs"]),
                      ?assertMatch({error,_},
                                   proplists:lookup(error, [PR || {_P, PR} <- QA2Res]))
             end
