@@ -163,6 +163,52 @@ basic_test_() ->
                 eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
             end
+            },
+
+            { "reload slots map",
+            fun () ->
+                Key = "{111}:test",
+
+                {ok, NodesInfo} = eredis_cluster:q(["cluster","nodes"]),
+
+                ClusterNodesList = string:lexemes(NodesInfo,"\n"),
+                NodeIdsL = lists:foldl(fun(ClusterNode, Acc) ->
+                                               ClusterNodeI = string:lexemes(ClusterNode," "),
+                                               case lists:nth(3, ClusterNodeI) of
+                                                   Role when Role == <<"myself,master">>;
+                                                             Role == <<"master">> ->
+                                                       [Ip, Port] = string:lexemes(lists:nth(2, ClusterNodeI), ":"),
+                                                       Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
+                                                       [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool} | Acc];
+                                                   _ ->
+                                                       Acc
+                                               end
+                                       end, [], ClusterNodesList),
+                KeySlot = eredis_cluster:get_key_slot(Key),
+                Pool = element(1, eredis_cluster_monitor:get_pool_by_slot(KeySlot)),
+
+                {NodeId, Pool} = lists:keyfind(Pool, 2, NodeIdsL),
+                [{NodeId2, _Pool2}, _] = [{NI, P} || {NI, P} <- NodeIdsL, {NI, P} =/= {NodeId, Pool}],
+
+                %% Migrate Slot:
+                CmdImp = ["CLUSTER", "SETSLOT", KeySlot, "IMPORTING", NodeId],
+                eredis_cluster:qa(CmdImp),
+
+                CmdMig = ["CLUSTER", "SETSLOT", KeySlot, "MIGRATING", NodeId2],
+                eredis_cluster:qa(CmdMig),
+
+                CmdMig1 = ["CLUSTER", "SETSLOT", KeySlot, "NODE", NodeId2],
+                eredis_cluster:qa(CmdMig1),
+
+                OldState = eredis_cluster_monitor:get_state(),
+                Version = eredis_cluster_monitor:get_state_version(OldState),
+                eredis_cluster_monitor:refresh_mapping(Version),
+                {state, _, _, OldSlotMap, Version} = OldState,
+                NewState = eredis_cluster_monitor:get_state(),
+                {state, _, _, NewSlotMap, _} = NewState,
+               
+                ?assertEqual(false, OldSlotMap == NewSlotMap)
+            end
             }
 
       ]

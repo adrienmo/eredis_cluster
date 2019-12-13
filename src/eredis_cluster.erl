@@ -11,6 +11,8 @@
 % Generic redis call
 -export([q/1, qp/1, qw/2, qk/2, qa/1, qmn/1, transaction/1, transaction/2]).
 
+-export([get_key_slot/1]).
+
 % Specific redis command implementation
 -export([flushdb/0]).
 
