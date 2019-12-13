@@ -69,12 +69,17 @@ get_all_pools() ->
 -spec get_pool_by_slot(Slot::integer(), State::#state{}) ->
     {PoolName::atom() | undefined, Version::integer()}.
 get_pool_by_slot(Slot, State) -> 
-    Index = element(Slot+1,State#state.slots),
-    Cluster = element(Index,State#state.slots_maps),
-    if
-        Cluster#slots_map.node =/= undefined ->
-            {Cluster#slots_map.node#node.pool, State#state.version};
-        true ->
+    try
+        Index = element(Slot+1,State#state.slots),
+        Cluster = element(Index,State#state.slots_maps),
+        if
+            Cluster#slots_map.node =/= undefined ->
+                {Cluster#slots_map.node#node.pool, State#state.version};
+            true ->
+                {undefined, State#state.version}
+        end
+    catch
+        _:_ ->
             {undefined, State#state.version}
     end.
 
