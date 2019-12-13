@@ -178,10 +178,17 @@ basic_test_() ->
                 Key = "close:{1}:return",
                 eredis_cluster:q_nor(["set", Key, "test"]),
 
+                AllPools = lists:usort(eredis_cluster_monitor:get_all_pools()),
+
                 Pool = element(1, eredis_cluster_monitor:get_pool_by_slot( eredis_cluster:get_key_slot(Key))),
                 ok = eredis_cluster:close_connection([Pool]),
 
-                ?assertEqual({error,no_connection}, eredis_cluster:q(["get", Key]))
+                NAllPools = lists:usort(eredis_cluster_monitor:get_all_pools()),
+                ?assertEqual([Pool], AllPools -- NAllPools),
+
+                ?assertEqual({ok,<<"test">>}, eredis_cluster:q(["get", Key])),
+                %% Slots Map has been refreshed during getting the key:
+                ?assertEqual(AllPools, lists:usort(eredis_cluster_monitor:get_all_pools()))
             end
             }
 

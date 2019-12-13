@@ -251,7 +251,16 @@ close_connection_(PoolNodes) ->
              State;
          M ->
              Map = tuple_to_list(M),
-             close_connection_with_nodes(Map, PoolNodes)
+             NeMap = close_connection_with_nodes(Map, PoolNodes),
+             ConnectedSlotsMaps = connect_all_slots(NeMap),
+             Slots = create_slots_cache(ConnectedSlotsMaps),
+             NS = State#state{
+                              slots = list_to_tuple(Slots),
+                              slots_maps = list_to_tuple(ConnectedSlotsMaps),
+                              version = State#state.version + 1
+                             },
+             true = ets:insert(?MODULE, [{cluster_state, NS}]),
+             NS
      end.
 
 %% gen_server.
