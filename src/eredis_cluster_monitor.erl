@@ -45,8 +45,12 @@ refresh_mapping(Version) ->
 
 -spec get_state() -> #state{}.
 get_state() ->
-    [{cluster_state, State}] = ets:lookup(?MODULE, cluster_state),
-    State.
+    case ets:lookup(?MODULE, cluster_state) of
+        [{cluster_state, S}] ->
+            S;
+        [] ->
+            #state{}
+    end.
 
 get_state_version(State) ->
     State#state.version.
@@ -201,16 +205,18 @@ get_cluster_slots_from_single_node(Node) ->
 -spec parse_cluster_slots([[bitstring() | [bitstring()]]]) -> [#slots_map{}].
 parse_cluster_slots(ClusterInfo) ->
     parse_cluster_slots(ClusterInfo, 1, []).
-
 parse_cluster_slots([[StartSlot, EndSlot | [[Address, Port | _] | _]] | T], Index, Acc) ->
+    Addr = binary_to_list(Address),
+    P = binary_to_integer(Port),
     SlotsMap =
         #slots_map{
             index = Index,
             start_slot = binary_to_integer(StartSlot),
             end_slot = binary_to_integer(EndSlot),
             node = #node{
-                address = binary_to_list(Address),
-                port = binary_to_integer(Port)
+                address = Addr,
+                port = P,
+                pool = list_to_atom(Addr ++ "#" ++ integer_to_list(P))
             }
         },
     parse_cluster_slots(T, Index+1, [SlotsMap | Acc]);
@@ -271,14 +277,13 @@ connect_all_slots(SlotsMapList) ->
 connect_([]) ->
     #state{};
 connect_(InitNodes) ->
-    State = #state{
-        slots = undefined,
-        slots_maps = {},
-        init_nodes = [#node{address = A, port = P} || {A,P} <- InitNodes],
-        version = 0
-    },
-
-    reload_slots_map(State).
+    OldState = case get_state() of
+                    undefined ->
+                        #state{init_nodes = [#node{address = A, port = P} || {A,P} <- InitNodes]};
+                    State ->
+                        State#state{init_nodes = [#node{address = A, port = P} || {A,P} <- InitNodes]}
+               end,
+    reload_slots_map(OldState).
 
 %%% - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 -spec minus(Xs :: [A], Ys :: [A]) -> [A].
