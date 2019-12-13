@@ -206,8 +206,17 @@ basic_test_() ->
                 {state, _, _, OldSlotMap, Version} = OldState,
                 NewState = eredis_cluster_monitor:get_state(),
                 {state, _, _, NewSlotMap, _} = NewState,
-               
-                ?assertEqual(false, OldSlotMap == NewSlotMap)
+
+                CheckMaps = lists:map(fun({slots_map, NSS, NES, _NI, NNode}) ->
+                                              % Check if slots maps are the same:
+                                              Fun = fun({slots_map, OSS, OES, _OI, ONode}) when NSS == OSS,
+                                                                                                NES == OES,
+                                                                                                NNode == ONode -> true;
+                                                       (_) -> false % maps are different
+                                                    end,
+                                              lists:any(Fun, tuple_to_list(OldSlotMap))
+                                      end, tuple_to_list(NewSlotMap)),
+                ?assertEqual(true, lists:member(false, CheckMaps))
             end
             }
 
