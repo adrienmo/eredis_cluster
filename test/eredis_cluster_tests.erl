@@ -185,7 +185,6 @@ basic_test_() ->
                                        false -> string:lexemes(NodesInfo,"\n")
                                    end,
                 NodeIdsL = lists:foldl(fun(ClusterNode, Acc) ->
-                               
                                ClusterNodeI = case OTPRel < 20 of
                                                   true ->  string:tokens(ClusterNode," ");
                                                   false -> string:lexemes(ClusterNode," ")
