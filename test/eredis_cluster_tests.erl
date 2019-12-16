@@ -163,6 +163,51 @@ basic_test_() ->
                 eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
             end
+            },
+
+            { "get cluster slots and nodes",
+                        fun () ->
+                     NodesInfo = eredis_cluster_monitor:get_cluster_nodes(),
+                     ClusterNodesList = [CNEL || CNEL <- binary:split(NodesInfo,<<"\n">>, [global]), CNEL =/= <<>>],
+                     NodeIdsPL =
+                         lists:flatmap(fun(ClusterNode) ->
+                                               ClusterNodeI = binary:split(ClusterNode,<<" ">>,[global]),
+                                               [Ip, Port] = binary:split(lists:nth(2, ClusterNodeI), <<":">>,[global]),
+                                               Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
+                                               [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool}]
+                                       end, ClusterNodesList),
+
+                     ?assertMatch([{_, '127.0.0.1#30001'}, {_, '127.0.0.1#30002'},
+                                   {_, '127.0.0.1#30003'}, {_, '127.0.0.1#30004'},
+                                   {_, '127.0.0.1#30005'}, {_, '127.0.0.1#30006'}],
+                                  lists:keysort(2, NodeIdsPL)),
+
+                     % Try to get "cluster slots" and "cluster nodes" for non-existing node:
+                     eredis_cluster_monitor:update_state_init_nodes([{node,"127.0.0.1",30016,
+                                                                      '127.0.0.1#30016'}]),
+
+                     SlotsInfo = 
+                         try eredis_cluster_monitor:get_cluster_slots() of
+                             SI -> SI
+                         catch
+                             throw:SIError -> SIError
+                         end,
+
+                     ?assertMatch({reply, {error, {cannot_connect_to_cluster,
+                                                   [{{node,"127.0.0.1",30016,'127.0.0.1#30016'},
+                                                     {error,no_connection}}]}},_},
+                                  SlotsInfo),
+
+                     NodesInfo2 = try eredis_cluster_monitor:get_cluster_nodes() of
+                                      NI -> NI
+                                  catch
+                                      throw:NIError -> NIError
+                                  end,
+                     ?assertMatch({reply,{error,{cannot_get_cluster_nodes,
+                                                 [{{node,"127.0.0.1",30016,'127.0.0.1#30016'},
+                                                   {error,no_connection}}]}},_},
+                                  NodesInfo2)
+            end
             }
 
       ]
