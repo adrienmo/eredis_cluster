@@ -19,6 +19,7 @@
 -export([update_hash_field/3]).
 -export([optimistic_locking_transaction/3]).
 -export([eval/4]).
+-export([get_pool_by_command/1, get_pool_by_key/1, get_key_slot/1]).
 
 -include("eredis_cluster.hrl").
 
@@ -89,7 +90,7 @@ transaction(Transaction, Slot, ExpectedValue, Counter) ->
 -spec qmn(redis_pipeline_command()) -> redis_pipeline_result().
 qmn(Commands) -> qmn(Commands, 0).
 
-qmn(_, ?REDIS_CLUSTER_REQUEST_TTL) -> 
+qmn(_, ?REDIS_CLUSTER_REQUEST_TTL) ->
     {error, no_connection};
 qmn(Commands, Counter) ->
     %% Throttle retries
@@ -106,7 +107,7 @@ qmn2([{Pool, PoolCommands} | T1], [{Pool, Mapping} | T2], Acc, Version) ->
     Result = eredis_cluster_pool:transaction(Pool, Transaction),
     case handle_transaction_result(Result, Version, check_pipeline_result) of
         retry -> retry;
-        Res -> 
+        Res ->
             MappedRes = lists:zip(Mapping,Res),
             qmn2(T1, T2, MappedRes ++ Acc, Version)
     end;
@@ -190,9 +191,9 @@ query(Transaction, Slot, Counter) ->
     end.
 
 handle_transaction_result(Result, Version) ->
-    case Result of 
+    case Result of
        % If we detect a node went down, we should probably refresh the slot
-        % mapping.
+       % mapping.
         {error, no_connection} ->
             eredis_cluster_monitor:refresh_mapping(Version),
             retry;
@@ -298,7 +299,7 @@ optimistic_locking_transaction(WatchedKey, GetCommand, UpdateFunction) ->
         RedisResult = qw(Worker, [["MULTI"]] ++ UpdateCommand ++ [["EXEC"]]),
         {lists:last(RedisResult), Result}
     end,
-	case transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL) of
+    case transaction(Transaction, Slot, {ok, undefined}, ?OL_TRANSACTION_TTL) of
         {{ok, undefined}, _} ->
             {error, resource_busy};
         {{ok, TransactionResult}, UpdateResult} ->
@@ -454,3 +455,23 @@ get_key_from_rest([_,KeyName|_]) when is_list(KeyName) ->
     KeyName;
 get_key_from_rest(_) ->
     undefined.
+
+%% =============================================================================
+%% @doc Returns pool for the command
+%% @end
+%% =============================================================================
+get_pool_by_command(Command) ->
+    Key = get_key_from_command(Command),
+    Slot = get_key_slot(Key),
+    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+    Pool.
+
+%% =============================================================================
+%% @doc Returns pool per a key.
+%% @end
+%% =============================================================================
+get_pool_by_key(Key) ->
+    Slot = get_key_slot(Key),
+    {Pool, _Version} = eredis_cluster_monitor:get_pool_by_slot(Slot),
+    Pool.
+
