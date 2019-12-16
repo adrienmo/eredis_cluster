@@ -168,11 +168,11 @@ basic_test_() ->
             { "get cluster slots and nodes",
                         fun () ->
                      NodesInfo = eredis_cluster_monitor:get_cluster_nodes(),
-                     ClusterNodesList = string:lexemes(NodesInfo,"\n"),
+                     ClusterNodesList = [CNEL || CNEL <- binary:split(NodesInfo,<<"\n">>, [global]), CNEL =/= <<>>],
                      NodeIdsPL =
                          lists:flatmap(fun(ClusterNode) ->
-                                               ClusterNodeI = string:lexemes(ClusterNode," "),
-                                               [Ip, Port] = string:lexemes(lists:nth(2, ClusterNodeI), ":"),
+                                               ClusterNodeI = binary:split(ClusterNode,<<" ">>,[global]),
+                                               [Ip, Port] = binary:split(lists:nth(2, ClusterNodeI), <<":">>,[global]),
                                                Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
                                                [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool}]
                                        end, ClusterNodesList),
