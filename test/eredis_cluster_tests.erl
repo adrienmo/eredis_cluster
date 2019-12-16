@@ -171,13 +171,13 @@ basic_test_() ->
 
                 {ok, NodesInfo} = eredis_cluster:q(["cluster","nodes"]),
 
-                ClusterNodesList = string:lexemes(NodesInfo,"\n"),
+                ClusterNodesList = [CNEL || CNEL <- binary:split(NodesInfo,<<"\n">>, [global]), CNEL =/= <<>>],
                 NodeIdsL = lists:foldl(fun(ClusterNode, Acc) ->
-                                               ClusterNodeI = string:lexemes(ClusterNode," "),
+                                               ClusterNodeI = binary:split(ClusterNode,<<" ">>,[global]),
                                                case lists:nth(3, ClusterNodeI) of
                                                    Role when Role == <<"myself,master">>;
                                                              Role == <<"master">> ->
-                                                       [Ip, Port] = string:lexemes(lists:nth(2, ClusterNodeI), ":"),
+                                                       [Ip, Port] = binary:split(lists:nth(2, ClusterNodeI), <<":">>,[global]),
                                                        Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
                                                        [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool} | Acc];
                                                    _ ->
