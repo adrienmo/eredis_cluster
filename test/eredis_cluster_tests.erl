@@ -178,24 +178,14 @@ basic_test_() ->
                 Key = "{1}:test",
                 eredis_cluster:q(["set",Key]),
                 {ok, NodesInfo} = eredis_cluster:q(["cluster","nodes"]),
-                OTPRel = list_to_integer(erlang:system_info(otp_release)),
 
-                ClusterNodesList = case OTPRel < 20 of
-                                       true ->  string:tokens(NodesInfo,"\n");
-                                       false -> string:lexemes(NodesInfo,"\n")
-                                   end,
+                ClusterNodesList = [CNEL || CNEL <- binary:split(NodesInfo,<<"\n">>, [global]), CNEL =/= <<>>],
                 NodeIdsL = lists:foldl(fun(ClusterNode, Acc) ->
-                               ClusterNodeI = case OTPRel < 20 of
-                                                  true ->  string:tokens(ClusterNode," ");
-                                                  false -> string:lexemes(ClusterNode," ")
-                                              end,
+                               ClusterNodeI = binary:split(ClusterNode,<<" ">>, [global]),
                                case lists:nth(3, ClusterNodeI) of
                                    Role when Role == <<"myself,master">>;
                                              Role == <<"master">> ->
-                                       [Ip, Port] = case OTPRel < 20 of
-                                                  true ->  string:tokens(lists:nth(2, ClusterNodeI), ":");
-                                                  false -> string:lexemes(lists:nth(2, ClusterNodeI), ":")
-                                              end,
+                                       [Ip, Port] = binary:split(lists:nth(2, ClusterNodeI), <<":">>, [global]),
                                        Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
                                        [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool} | Acc];
                                    _ ->
