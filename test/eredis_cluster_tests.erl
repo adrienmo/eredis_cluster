@@ -171,19 +171,19 @@ basic_test_() ->
 
                 {ok, NodesInfo} = eredis_cluster:q(["cluster","nodes"]),
          
-                ClusterNodesList = string:lexemes(NodesInfo,"\n"),
+                ClusterNodesList = [CNEl || CNEl <- binary:split(NodesInfo, <<"\n">>, [global]), CNEl =/= <<>>],
                 NodeIdsL = lists:foldl(fun(ClusterNode, Acc) ->
-                                               ClusterNodeI = string:lexemes(ClusterNode," "),
-                                               case lists:nth(3, ClusterNodeI) of
-                                                   Role when Role == <<"myself,master">>;
-                                                             Role == <<"master">> ->
-                                                       [Ip, Port] = string:lexemes(lists:nth(2, ClusterNodeI), ":"),
-                                                       Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
-                                                       [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool} | Acc];
-                                                   _ ->
-                                                       Acc
-                                               end
-                                       end, [], ClusterNodesList),
+                               ClusterNodeI = binary:split(ClusterNode, <<" ">>, [global]),
+                               case lists:nth(3, ClusterNodeI) of
+                                   Role when Role == <<"myself,master">>;
+                                             Role == <<"master">> ->
+                                       [Ip, Port] = binary:split(lists:nth(2, ClusterNodeI), <<":">>, [global]),
+                                       Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
+                                       [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool} | Acc];
+                                   _ ->
+                                       Acc
+                               end
+                       end, [], ClusterNodesList),
                 KeySlot = eredis_cluster:get_key_slot(Key),
                 Pool = element(1, eredis_cluster_monitor:get_pool_by_slot(KeySlot)),
          
