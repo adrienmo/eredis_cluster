@@ -51,7 +51,7 @@ transaction(PoolName, Transaction) ->
     catch
         exit:Reason:Stacktrace ->
             
-            case Pbs = poolboy:status(PoolName) of
+            case poolboy:status(PoolName) of
                 {full, _, _, _} -> {error, connection_pool_full};
                 Pbs ->
                     erlang:display(["DEBUG0318:>>>", Reason, Stacktrace]),
