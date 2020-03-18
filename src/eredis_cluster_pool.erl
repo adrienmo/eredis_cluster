@@ -49,8 +49,15 @@ transaction(PoolName, Transaction) ->
     try
         poolboy:transaction(PoolName, Transaction)
     catch
-        exit:_ ->
-            {error, no_connection}
+        exit:Reason:Stacktrace ->
+            
+            case Pbs = poolboy:status(PoolName) of
+                {full, _, _, _} -> {error, connection_pool_full};
+                Pbs ->
+                    erlang:display(["DEBUG0318:>>>", Reason, Stacktrace]),
+                    erlang:display(["DEBUG0318:>>>", Pbs]),
+                    {error, no_connection}
+            end
     end.
 
 -spec stop(PoolName::atom()) -> ok.

@@ -191,10 +191,15 @@ query(Transaction, Slot, Counter) ->
 
 handle_transaction_result(Result, Version) ->
     case Result of 
-       % If we detect a node went down, we should probably refresh the slot
+        % If we detect a node went down, we should probably refresh the slot
         % mapping.
         {error, no_connection} ->
             eredis_cluster_monitor:refresh_mapping(Version),
+            retry;
+
+        % If all poolboy workers are busy, we will try. We don't need to refresh the
+        % slot mapping in this case
+        {error, connection_pool_full} ->
             retry;
 
         % If the tcp connection is closed (connection timeout), the redis worker
