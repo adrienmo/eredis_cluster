@@ -50,12 +50,16 @@ transaction(PoolName, Transaction) ->
         poolboy:transaction(PoolName, Transaction)
     catch
         exit:Reason ->
-            
+
             case poolboy:status(PoolName) of
-                {full, _, _, _} -> {error, connection_pool_full};
+                {full, _, _, _} ->
+                    Self = erlang:node(),
+                    error_logger:error_msg("eredis_cluster: Poolboy is FULL with exit due to ~p at node ~p",
+                            [Reason, Self]),
+                    {error, connection_pool_full};
                 Pbs ->
                     Self = erlang:node(),
-                    error_logger:error_msg("eredis_cluster: Poolboy with status ~p exit due to ~p at node ~p",
+                    error_logger:error_msg("eredis_cluster: Poolboy is NOT full with status ~p exit due to ~p at node ~p",
                             [Pbs, Reason, Self]),
                     {error, no_connection}
             end
