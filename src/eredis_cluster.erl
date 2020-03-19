@@ -194,7 +194,10 @@ handle_transaction_result(Result, Version) ->
         % If we detect a node went down, we should probably refresh the slot
         % mapping.
         {error, no_connection} ->
-            eredis_cluster_monitor:refresh_mapping(Version),
+            % Commented out refresh_mapping as most of the no_connection error are not due to the node went down.
+            % In the case where the eredis under high load and returns error due to time out, calling 
+            % refresh_mapping will further add more load the system.
+            % eredis_cluster_monitor:refresh_mapping(Version),
             retry;
 
         % If all poolboy workers are busy, we will try. We don't need to refresh the
