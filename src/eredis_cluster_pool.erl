@@ -49,13 +49,14 @@ transaction(PoolName, Transaction) ->
     try
         poolboy:transaction(PoolName, Transaction)
     catch
-        exit:Reason:Stacktrace ->
+        exit:Reason ->
             
             case poolboy:status(PoolName) of
                 {full, _, _, _} -> {error, connection_pool_full};
                 Pbs ->
-                    erlang:display(["DEBUG0318:>>>", Reason, Stacktrace]),
-                    erlang:display(["DEBUG0318:>>>", Pbs]),
+                    Self = erlang:node(),
+                    error_logger:error_msg("eredis_cluster: Poolboy with status ~p exit due to ~p at node ~p",
+                            [Pbs, Reason, Self]),
                     {error, no_connection}
             end
     end.
