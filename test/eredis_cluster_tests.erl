@@ -163,8 +163,65 @@ basic_test_() ->
                 eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
             end
-            }
+            },
 
+            { "get info from all pools",
+            fun () ->
+                ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"])),
+                ?assertEqual(none, proplists:lookup(error,eredis_cluster:qa(["cluster", "slots"]))),
+                ?assertMatch({error,_}, proplists:lookup(error,eredis_cluster:qa(["get", "qrs"])))
+            end
+            },
+
+            { "ASK support",
+            fun () ->
+                Key = "{1}:test",
+                eredis_cluster:q(["set",Key]),
+                {ok, NodesInfo} = eredis_cluster:q(["cluster","nodes"]),
+
+                ClusterNodesList = [CNEL || CNEL <- binary:split(NodesInfo,<<"\n">>, [global]), CNEL =/= <<>>],
+                NodeIdsL = lists:foldl(fun(ClusterNode, Acc) ->
+                               ClusterNodeI = binary:split(ClusterNode,<<" ">>, [global]),
+                               case lists:nth(3, ClusterNodeI) of
+                                   Role when Role == <<"myself,master">>;
+                                             Role == <<"master">> ->
+                                       [Ip, Port] = binary:split(lists:nth(2, ClusterNodeI), <<":">>, [global]),
+                                       Pool = list_to_atom(binary_to_list(Ip) ++ "#" ++ binary_to_list(Port)),
+                                       [{binary_to_list(lists:nth(1, ClusterNodeI)), Pool} | Acc];
+                                   _ ->
+                                       Acc
+                               end
+                       end, [], ClusterNodesList),
+                KeySlot = eredis_cluster:get_key_slot(Key),
+
+                Pool = element(1, eredis_cluster_monitor:get_pool_by_slot(KeySlot)),
+
+                {NodeId, Pool} = lists:keyfind(Pool, 2, NodeIdsL),
+                [{NodeId2, _Pool2}, _] = [{NI, P} || {NI, P} <- NodeIdsL, {NI, P} =/= {NodeId, Pool}],
+
+                %% Migrate Slot to have 2 sets of slots for one node:
+                CmdImp = ["CLUSTER", "SETSLOT", KeySlot, "IMPORTING", NodeId],
+                eredis_cluster:qa(CmdImp),
+
+                CmdMig = ["CLUSTER", "SETSLOT", KeySlot, "MIGRATING", NodeId2],
+                eredis_cluster:qa(CmdMig),
+                Result = lists:usort(eredis_cluster:qa(["get",Key])),
+
+                Fun = fun({error, <<"MOVED ", _/binary>>}) -> true;
+                      ({error, <<"ASK ", _/binary>>}) -> true;
+                      (_) -> false
+                   end,
+                Verdict = case lists:all(Fun, Result) of
+                    false -> Result;
+                    true -> true
+                end,
+                
+                ?assertEqual(true, Verdict),
+
+                CmdMig1 = ["CLUSTER", "SETSLOT", KeySlot, "NODE", NodeId2],
+                eredis_cluster:qa(CmdMig1)
+            end
+            }
       ]
     }
 }.
