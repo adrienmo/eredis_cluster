@@ -163,6 +163,37 @@ basic_test_() ->
                 eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
             end
+            },
+
+            { "load script and evalsha",
+            fun () ->
+                eredis_cluster:q(["hset", "klm", "rst", 10]),
+                S = "local k = KEYS[1]
+                  if redis.call('exists', k) == 1 then
+                  return redis.call('hvals', k)
+                  end",
+                {ok, Hash} = eredis_cluster:load_script(S),
+                ?assertEqual({ok, [<<"10">>, <<"7">>]}, eredis_cluster:eval(S, Hash, ["klm"], []))
+            end
+            },
+
+            { "scan",
+            fun () ->
+                Key1 = "scan{1}return1",
+                Key2 = "scan{1}return2",
+                Key3 = "noscan{1}return",
+                eredis_cluster:q(["set", Key1, "test"]),
+                eredis_cluster:q(["set", Key2, "test"]),
+                eredis_cluster:q(["set", Key3, "test"]),
+
+                Pool = element(1, eredis_cluster_monitor:get_pool_by_slot(eredis_cluster:get_key_slot(Key1))),
+                {ok,[<<_Cursor>>, RetKeys]} = eredis_cluster:scan(Pool, 0, "scan{1}return*", 5000, 0),
+
+                StrKeys = lists:map(fun(Key) -> binary_to_list(Key) end, RetKeys),
+                ?assertEqual(true, lists:member(Key1, StrKeys)),
+                ?assertEqual(true, lists:member(Key2, StrKeys)),
+                ?assertEqual(false, lists:member(Key3, StrKeys))
+            end
             }
 
       ]
