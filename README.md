@@ -44,8 +44,7 @@ Or:
 	        ]},
 	        {pool_size, 5},
 	        {pool_max_overflow, 0},
-		{database, 0},
- 		{password, "redis_pw"}
+	        {password, "redis_pw"}
 	    ]
 	}
 

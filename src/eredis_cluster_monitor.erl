@@ -26,6 +26,7 @@
 }).
 
 -define(SLOTS, eredis_cluster_monitor_slots).
+-define(DATABASE, 0).
 
 %% API.
 -spec start_link() -> {ok, pid()}.
@@ -176,11 +177,10 @@ connect_node(Node) ->
             undefined
     end.
 
-safe_eredis_start_link(Address,Port) ->
+safe_eredis_start_link(Address, Port) ->
     process_flag(trap_exit, true),
-    DataBase = application:get_env(eredis_cluster, database, 0),
     Password = application:get_env(eredis_cluster, password, ""),
-    Payload = eredis:start_link(Address, Port, DataBase, Password),
+    Payload = eredis:start_link(Address, Port, ?DATABASE, Password),
     process_flag(trap_exit, false),
     Payload.
 

@@ -19,16 +19,14 @@ create(Host, Port) ->
 
     case whereis(PoolName) of
         undefined ->
-            DataBase = application:get_env(eredis_cluster, database, 0),
             Password = application:get_env(eredis_cluster, password, ""),
             WorkerArgs = [{host, Host},
                           {port, Port},
-                          {database, DataBase},
                           {password, Password}
                          ],
 
-        	Size = application:get_env(eredis_cluster, pool_size, 10),
-        	MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
+            Size = application:get_env(eredis_cluster, pool_size, 10),
+            MaxOverflow = application:get_env(eredis_cluster, pool_max_overflow, 0),
 
             PoolArgs = [{name, {local, PoolName}},
                         {worker_module, eredis_cluster_pool_worker},

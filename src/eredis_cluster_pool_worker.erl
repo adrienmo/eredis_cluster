@@ -16,17 +16,18 @@
 
 -record(state, {conn}).
 
+-define(DATABASE, 0).
+
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
 init(Args) ->
     Hostname = proplists:get_value(host, Args),
     Port = proplists:get_value(port, Args),
-    DataBase = proplists:get_value(database, Args, 0),
     Password = proplists:get_value(password, Args, ""),
 
     process_flag(trap_exit, true),
-    Result = eredis:start_link(Hostname,Port, DataBase, Password),
+    Result = eredis:start_link(Hostname, Port, ?DATABASE, Password),
     process_flag(trap_exit, false),
 
     Conn = case Result of
