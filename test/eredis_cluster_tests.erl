@@ -158,9 +158,11 @@ basic_test_() ->
 
             { "eval",
             fun () ->
+                %% Remove scripts from a previous run to make sure we test the NOSCRIPT handling
+                ?assertMatch([{ok, _},{ok, _},{ok, _}], eredis_cluster:qa(["SCRIPT", "FLUSH"])),
                 Script = <<"return redis.call('set', KEYS[1], ARGV[1]);">>,
                 ScriptHash = << << if N >= 10 -> N -10 + $a; true -> N + $0 end >> || <<N:4>> <= crypto:hash(sha, Script) >>,
-                eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"]),
+                ?assertMatch({ok, _}, eredis_cluster:eval(Script, ScriptHash, ["qrs"], ["evaltest"])),
                 ?assertEqual({ok, <<"evaltest">>}, eredis_cluster:q(["get", "qrs"]))
             end
             }
